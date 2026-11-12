@@ -1,0 +1,1734 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Upload your lectures and study them as notes, explanations, narrated videos, flashcards, quizzes and tutoring.">
+<title>Lecture Loop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<style>
+/* Layout: library rail on the left, lecture workspace on the right with study-mode tabs; stacks to one column on phones. */
+:root {
+  --paper: #F3F5F9;
+  --surface: #FFFFFF;
+  --ink: #141A29;
+  --muted: #5A6278;
+  --line: #DCE1EB;
+  --soft: #E8ECF7;
+  --accent: #2344CF;
+  --accent-ink: #FFFFFF;
+  --hl: #FFE14D;
+  --hl-ink: #141A29;
+  --good: #1D8549;
+  --good-soft: #DDF3E5;
+  --bad: #BF3428;
+  --bad-soft: #FBE3E0;
+  --shadow: 0 1px 2px rgba(20,26,41,.06), 0 6px 20px rgba(20,26,41,.06);
+  --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0E1119; --surface: #171B27; --ink: #E6E9F2; --muted: #9AA2B7; --line: #2A3044; --soft: #1F2536;
+    --accent: #8299FF; --accent-ink: #0E1119; --hl: #E8C832; --hl-ink: #141A29;
+    --good: #55C786; --good-soft: #17301F; --bad: #FF7B6C; --bad-soft: #3A1C19;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0E1119; --surface: #171B27; --ink: #E6E9F2; --muted: #9AA2B7; --line: #2A3044; --soft: #1F2536;
+  --accent: #8299FF; --accent-ink: #0E1119; --hl: #E8C832; --hl-ink: #141A29;
+  --good: #55C786; --good-soft: #17301F; --bad: #FF7B6C; --bad-soft: #3A1C19;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+img { max-width: 100%; }
+html, body { min-height: 100%; }
+body {
+  margin: 0;
+  background: var(--paper); color: var(--ink);
+  font: 16px/1.55 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 40px;
+}
+button, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h1, h2, h3 { font-family: var(--f-display); line-height: 1.15; text-wrap: balance; margin: 0; }
+.mono { font-family: var(--f-mono); }
+.label { font-family: var(--f-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+
+/* Top bar */
+.top { max-width: 1240px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 18px 14px; flex-wrap: wrap; }
+.brand { display: flex; align-items: baseline; gap: 10px; }
+.brand h1 { font-size: 26px; font-weight: 800; letter-spacing: -.02em; }
+.brand h1 span { background: linear-gradient(transparent 58%, var(--hl) 58%, var(--hl) 92%, transparent 92%); padding-inline: 2px; }
+:root[data-theme="dark"] .brand h1 span, .brand h1 span { color: inherit; }
+.status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.ok { background: var(--good); }
+.dot.warn { background: var(--hl); }
+
+/* Shell */
+.shell { max-width: 1240px; margin: 0 auto; display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 20px; align-items: start; }
+.rail { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.lib { display: flex; flex-direction: column; gap: 4px; }
+.lib-item { text-align: left; border: 1px solid transparent; background: transparent; border-radius: 10px; padding: 10px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lib-item:hover { background: var(--soft); }
+.lib-item[aria-current="true"] { background: var(--surface); border-color: var(--line); box-shadow: var(--shadow); }
+.lib-item .t { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-item .m { font-size: 12px; color: var(--muted); font-family: var(--f-mono); }
+.tag { display: inline-block; font-family: var(--f-mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; padding: 1px 6px; border-radius: 4px; background: var(--hl); color: var(--hl-ink); vertical-align: 2px; margin-left: 6px; }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 10px; padding: 9px 16px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-weight: 700; font-size: 15px; transition: background .15s, border-color .15s, transform .1s; }
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover:not(:disabled) { filter: brightness(1.08); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover:not(:disabled) { color: var(--ink); border-color: var(--line); }
+.btn.danger { color: var(--bad); }
+.btn.danger.armed { background: var(--bad); border-color: var(--bad); color: var(--surface); }
+.btn.small { padding: 6px 12px; font-size: 14px; }
+.btn.block { width: 100%; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* Workspace */
+.work { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); min-width: 0; overflow: hidden; }
+.head { padding: 24px 28px 0; display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.head h2 { font-size: clamp(24px, 3.2vw, 34px); font-weight: 800; letter-spacing: -.02em; min-width: 0; overflow-wrap: anywhere; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-family: var(--f-mono); font-size: 12px; color: var(--muted); }
+.tabs { display: flex; gap: 2px; padding: 18px 20px 0; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { border: 0; background: transparent; padding: 10px 14px 12px; cursor: pointer; font-weight: 700; color: var(--muted); border-bottom: 3px solid transparent; white-space: nowrap; font-size: 15px; }
+.tab:hover { color: var(--ink); }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.panel { padding: 24px 28px 32px; min-width: 0; }
+
+.empty { display: grid; gap: 12px; justify-items: start; max-width: 560px; padding-block: 12px; }
+.empty h3 { font-size: 22px; }
+.empty p { margin: 0; color: var(--muted); }
+.note { font-size: 14px; color: var(--muted); }
+.err { background: var(--bad-soft); color: var(--bad); border-radius: 10px; padding: 10px 14px; font-size: 14px; margin-bottom: 16px; }
+.banner { background: var(--soft); border-radius: 10px; padding: 10px 14px; font-size: 14px; margin-bottom: 16px; color: var(--ink); }
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; background: var(--soft); border-radius: 10px; padding: 8px 8px 8px 14px; margin-bottom: 18px; font-size: 14px; }
+.pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 8px; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+
+/* Prose (notes, explanations) */
+.prose { max-width: 70ch; overflow-wrap: anywhere; }
+.prose > :first-child { margin-top: 0; }
+.prose h1, .prose h2 { font-size: 22px; margin: 1.6em 0 .5em; }
+.prose h2 span.mk, .prose h2 { }
+.prose h2 { display: inline-block; background: linear-gradient(transparent 62%, color-mix(in srgb, var(--hl) 70%, transparent) 62%); padding-inline: 2px; }
+.prose h3 { font-size: 18px; margin: 1.4em 0 .4em; }
+.prose p, .prose li { line-height: 1.65; }
+.prose strong { font-weight: 700; }
+.prose code { font-family: var(--f-mono); font-size: .9em; background: var(--soft); padding: 1px 5px; border-radius: 4px; }
+.prose pre { background: var(--soft); padding: 12px 14px; border-radius: 10px; overflow-x: auto; }
+.prose pre code { background: none; padding: 0; }
+.prose blockquote { margin: 1em 0; padding: 4px 16px; border-left: 3px solid var(--accent); color: var(--muted); }
+.prose table { border-collapse: collapse; width: 100%; font-size: 15px; }
+.prose .tw { overflow-x: auto; margin: 1em 0; }
+.prose th, .prose td { border-bottom: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+.prose th { font-family: var(--f-mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.thinking { color: var(--muted); font-style: italic; }
+
+/* Explain */
+.styles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.style { text-align: left; border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 10px 12px; cursor: pointer; display: grid; gap: 2px; }
+.style b { font-family: var(--f-display); font-size: 16px; }
+.style small { color: var(--muted); font-size: 12.5px; line-height: 1.35; }
+.style[aria-pressed="true"] { border-color: var(--accent); background: var(--soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.field { display: grid; gap: 6px; }
+.input, .textarea { width: 100%; border: 1px solid var(--line); background: var(--paper); border-radius: 10px; padding: 10px 12px; }
+.textarea { resize: vertical; min-height: 120px; line-height: 1.5; }
+.input:focus, .textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.divider { height: 1px; background: var(--line); margin: 22px 0; }
+
+/* Flashcards */
+.deck { display: grid; gap: 16px; max-width: 640px; }
+.fc { perspective: 1400px; cursor: pointer; }
+.fc-inner { position: relative; min-height: 260px; transition: transform .5s cubic-bezier(.2,.7,.2,1); transform-style: preserve-3d; }
+.fc.flipped .fc-inner { transform: rotateY(180deg); }
+.face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; border-radius: 16px; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow); padding: 28px; display: flex; flex-direction: column; justify-content: center; gap: 12px; overflow: auto; }
+.face .q { font-family: var(--f-display); font-size: clamp(20px, 2.6vw, 26px); font-weight: 700; line-height: 1.25; }
+.face .a { font-size: 18px; line-height: 1.55; }
+.face.back { transform: rotateY(180deg); background: var(--soft); }
+.face .corner { position: absolute; top: 14px; left: 18px; }
+.face .hint { position: absolute; bottom: 12px; right: 18px; font-size: 12px; color: var(--muted); }
+.progress { height: 6px; background: var(--soft); border-radius: 99px; overflow: hidden; }
+.progress > i { display: block; height: 100%; background: var(--accent); border-radius: 99px; transition: width .3s; }
+.btn.good { color: var(--good); }
+.btn.again { color: var(--bad); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 6px 12px; cursor: pointer; font-size: 14px; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--soft); color: var(--ink); font-weight: 700; }
+
+/* Quiz */
+.quiz { max-width: 680px; display: grid; gap: 16px; }
+.qtext { font-family: var(--f-display); font-size: clamp(20px, 2.4vw, 24px); font-weight: 700; line-height: 1.3; }
+.opts { display: grid; gap: 8px; }
+.opt { text-align: left; border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 12px 14px; cursor: pointer; display: flex; gap: 12px; align-items: flex-start; font-size: 16px; }
+.opt:hover:not(:disabled) { border-color: var(--accent); }
+.opt:disabled { cursor: default; }
+.opt .k { font-family: var(--f-mono); font-size: 12px; font-weight: 600; border: 1px solid var(--line); border-radius: 6px; width: 24px; height: 24px; display: grid; place-items: center; flex: none; margin-top: 1px; }
+.opt.right { border-color: var(--good); background: var(--good-soft); }
+.opt.wrong { border-color: var(--bad); background: var(--bad-soft); }
+.explain { border-left: 3px solid var(--accent); padding: 4px 0 4px 14px; color: var(--ink); }
+.score { display: flex; align-items: baseline; gap: 10px; }
+.score b { font-family: var(--f-display); font-size: 64px; font-weight: 800; line-height: 1; }
+.miss { border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 4px; }
+
+/* Tutor chat */
+.chat { display: grid; gap: 14px; max-width: 760px; }
+.msgs { display: grid; gap: 12px; }
+.msg { max-width: 88%; padding: 12px 16px; border-radius: 16px; overflow-wrap: anywhere; }
+.msg.user { justify-self: end; background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 4px; white-space: pre-wrap; }
+.msg.assistant { justify-self: start; background: var(--soft); border-bottom-left-radius: 4px; }
+.msg.assistant.prose > :last-child { margin-bottom: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { border: 1px solid var(--line); background: var(--surface); border-radius: 99px; padding: 6px 14px; cursor: pointer; font-size: 14px; }
+.chip:hover:not(:disabled) { border-color: var(--accent); }
+.compose { display: flex; gap: 8px; align-items: flex-end; }
+.compose .textarea { min-height: 52px; }
+
+/* Teach back */
+.teach { display: grid; gap: 16px; max-width: 760px; }
+.grade { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 20px; align-items: center; background: var(--soft); border-radius: 14px; padding: 18px 20px; }
+.ring { width: 92px; height: 92px; border-radius: 50%; display: grid; place-items: center; background: conic-gradient(var(--ring) calc(var(--v) * 1%), var(--line) 0); }
+.ring > div { width: 74px; height: 74px; border-radius: 50%; background: var(--soft); display: grid; place-items: center; font-family: var(--f-display); font-weight: 800; font-size: 26px; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+.cols h4 { margin: 0 0 6px; font-family: var(--f-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.cols ul { margin: 0; padding-left: 18px; }
+.cols li { margin-bottom: 4px; }
+
+/* Video */
+.screen { position: relative; width: 100%; max-width: 960px; aspect-ratio: 16 / 9; background: #10152A; border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); }
+.screen canvas { display: block; width: 100%; height: 100%; cursor: pointer; }
+.screen:fullscreen { max-width: none; border-radius: 0; background: #000; }
+.screen:fullscreen canvas { object-fit: contain; }
+.dots { display: flex; flex-wrap: wrap; gap: 4px; }
+.dots button { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-family: var(--f-mono); font-size: 12px; color: var(--muted); }
+.dots button[aria-current="true"] { background: var(--hl); border-color: var(--hl); color: var(--hl-ink); font-weight: 600; }
+.dots button:disabled { opacity: .5; cursor: default; }
+.vsel { width: auto; max-width: 260px; padding: 6px 10px; font-size: 14px; }
+.chip[aria-pressed="true"] { border-color: var(--accent); background: var(--soft); font-weight: 700; }
+.btn.ghost[aria-pressed="false"] { text-decoration: line-through; text-decoration-color: var(--muted); }
+.script { max-width: 960px; font-size: 15px; }
+.script summary { cursor: pointer; font-weight: 700; color: var(--muted); }
+.script ol { margin: 10px 0 0; padding-left: 22px; display: grid; gap: 6px; }
+
+/* Add lecture */
+.add { padding: 28px; display: grid; gap: 20px; max-width: 760px; }
+.drop { border: 2px dashed var(--line); border-radius: 16px; padding: 32px 20px; display: grid; gap: 8px; justify-items: center; text-align: center; background: var(--paper); cursor: pointer; transition: border-color .15s, background .15s; }
+.drop.over, .drop:hover { border-color: var(--accent); background: var(--soft); }
+.drop b { font-family: var(--f-display); font-size: 20px; }
+.types { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.types span { font-family: var(--f-mono); font-size: 11px; padding: 2px 8px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--muted); }
+.log { display: grid; gap: 4px; font-size: 14px; }
+.log .ok { color: var(--good); }
+.log .no { color: var(--bad); }
+.source { white-space: pre-wrap; font-size: 15px; line-height: 1.6; max-width: 75ch; max-height: 70vh; overflow: auto; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+@media (max-width: 820px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .rail { position: static; }
+  .lib { flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
+  .lib-item { min-width: 200px; max-width: 240px; flex: none; }
+  .head { padding: 20px 18px 0; }
+  .tabs { padding: 14px 10px 0; }
+  .panel { padding: 20px 18px 28px; }
+  .add { padding: 20px 18px; }
+  .msg { max-width: 95%; }
+  .face { padding: 22px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+</style>
+
+<header class="top">
+  <div class="brand"><h1><span>Lecture</span> Loop</h1></div>
+  <div class="status" id="status"><i class="dot"></i><span>Connecting…</span></div>
+</header>
+<div class="shell">
+  <aside class="rail">
+    <button class="btn primary block" id="addBtn" type="button">+ Add a lecture</button>
+    <div class="label" style="padding: 6px 4px 0">Your lectures</div>
+    <nav class="lib" id="lib" aria-label="Lectures"></nav>
+  </aside>
+  <main class="work" id="main"></main>
+</div>
+
+<script>
+(() => {
+"use strict";
+
+/* ---------- helpers ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k === "html") el.innerHTML = v;
+    else if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2), v);
+    else if (k === "style") el.style.cssText = v;
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of kids.flat(Infinity)) {
+    if (c == null || c === false) continue;
+    el.append(c.nodeType ? c : document.createTextNode(String(c)));
+  }
+  return el;
+}
+function md(text) {
+  try {
+    const html = window.DOMPurify.sanitize(window.marked.parse(String(text || "")));
+    return html.replace(/<table>/g, '<div class="tw"><table>').replace(/<\/table>/g, "</table></div>");
+  } catch {
+    const d = document.createElement("div"); d.textContent = text; return "<p style='white-space:pre-wrap'>" + d.innerHTML + "</p>";
+  }
+}
+const words = t => (String(t).trim().match(/\S+/g) || []).length;
+const fmt = n => n.toLocaleString();
+const newId = () => "L" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+function pref(k, v) {
+  try {
+    if (v === undefined) return localStorage.getItem("ll." + k);
+    localStorage.setItem("ll." + k, v);
+  } catch { return null; }
+}
+function shuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+function dateStr(t) { try { return new Date(t).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }); } catch { return ""; } }
+
+/* ---------- example lecture (shown so the app has something to teach on first open) ---------- */
+const SAMPLE_ID = "example";
+const SAMPLE = {
+  id: SAMPLE_ID, example: true, type: "lecture", source: "Example", createdAt: 0,
+  title: "Cellular Respiration",
+  text: `BIOL 1010 – Lecture 9: Cellular Respiration
+
+Today we follow a glucose molecule as the cell extracts usable energy from it. The overall equation is C6H12O6 + 6 O2 → 6 CO2 + 6 H2O + energy, roughly 30–32 ATP per glucose. The key idea: energy is released in small, controlled steps rather than all at once like burning, so the cell can capture it as ATP.
+
+1. Glycolysis (cytoplasm). Glucose (6 carbons) is split into two pyruvate molecules (3 carbons each). It needs no oxygen. The cell invests 2 ATP and makes 4, for a net gain of 2 ATP, plus 2 NADH. NADH is an electron carrier: think of it as a charged battery that will be spent later.
+
+2. Pyruvate oxidation (mitochondrial matrix). Each pyruvate enters the mitochondrion, loses one carbon as CO2, and becomes acetyl-CoA. This produces 1 NADH per pyruvate (2 per glucose).
+
+3. The citric acid cycle, also called the Krebs cycle (mitochondrial matrix). Acetyl-CoA joins oxaloacetate to form citrate. Through eight steps the remaining carbons leave as CO2 and oxaloacetate is regenerated, which is why it is a cycle. Per glucose (two turns): 2 ATP, 6 NADH, 2 FADH2, 4 CO2. Notice that very little ATP is made directly; the real value is the loaded electron carriers.
+
+4. Oxidative phosphorylation (inner mitochondrial membrane). This has two parts. First, the electron transport chain: NADH and FADH2 hand their electrons to a series of protein complexes. As electrons move down the chain, the complexes pump H+ ions from the matrix into the intermembrane space, building a concentration gradient. Oxygen is the final electron acceptor; it combines with electrons and H+ to form water. Without oxygen the chain backs up and stops. Second, chemiosmosis: H+ flows back into the matrix through ATP synthase, which works like a turbine and makes about 26–28 ATP. This stage produces about 90% of the cell's ATP.
+
+Why the yield is "about" 30–32 ATP: the H+ gradient is also used for other transport work, and the exact count depends on how NADH from glycolysis is shuttled into the mitochondrion.
+
+Fermentation. When oxygen is absent, cells still need to regenerate NAD+ so glycolysis can continue. In muscle cells, pyruvate becomes lactate (lactic acid fermentation). In yeast, pyruvate becomes ethanol and CO2 (alcoholic fermentation). Fermentation yields only the 2 ATP from glycolysis.
+
+Exam tip: be able to say where each stage happens, what goes in, what comes out, and which stage needs oxygen directly (only the electron transport chain, though the citric acid cycle stops without it because NAD+ isn't recycled).`
+};
+SAMPLE.words = words(SAMPLE.text);
+const SAMPLE_MAT = {
+  notes: `**Overview.** Cellular respiration breaks glucose down in controlled steps and stores the released energy as ATP (about 30–32 per glucose). Most ATP comes from the final stage, which depends on oxygen.
+
+## The four stages
+
+| Stage | Where | In → Out (per glucose) | ATP |
+|---|---|---|---|
+| Glycolysis | Cytoplasm | Glucose → 2 pyruvate, 2 NADH | 2 (net) |
+| Pyruvate oxidation | Mitochondrial matrix | 2 pyruvate → 2 acetyl-CoA, 2 CO2, 2 NADH | 0 |
+| Citric acid (Krebs) cycle | Mitochondrial matrix | 2 acetyl-CoA → 4 CO2, 6 NADH, 2 FADH2 | 2 |
+| Oxidative phosphorylation | Inner mitochondrial membrane | NADH, FADH2, O2 → H2O | ~26–28 |
+
+## Key ideas
+- **Controlled release**: energy is taken in small steps so it can be captured, unlike burning.
+- **Electron carriers** (**NADH**, **FADH2**) are the real product of the early stages. They act like charged batteries.
+- **Electron transport chain**: electrons flow through protein complexes that pump **H+** into the intermembrane space.
+- **Oxygen** is the **final electron acceptor** and forms water. No oxygen means the chain stops.
+- **Chemiosmosis**: H+ flows back through **ATP synthase** (a turbine), producing about 90% of ATP.
+
+## Fermentation (no oxygen)
+- Purpose: regenerate **NAD+** so glycolysis can keep running.
+- Muscle: pyruvate → **lactate**. Yeast: pyruvate → **ethanol + CO2**.
+- Yield: only the 2 ATP from glycolysis.
+
+## Likely exam questions
+1. Where does each stage happen, and what are its inputs and outputs?
+2. Why does the citric acid cycle stop without oxygen, even though it doesn't use O2 directly?
+3. Explain how the H+ gradient is used to make ATP.
+4. Compare the ATP yield of aerobic respiration and fermentation.
+5. Why is the total ATP yield given as a range?`,
+  flashcards: [
+    { front: "What is the overall equation for cellular respiration?", back: "C6H12O6 + 6 O2 → 6 CO2 + 6 H2O + energy (about 30–32 ATP)." },
+    { front: "Where does glycolysis happen, and does it need oxygen?", back: "In the cytoplasm. No, it is anaerobic." },
+    { front: "Net products of glycolysis per glucose?", back: "2 pyruvate, 2 ATP (net) and 2 NADH." },
+    { front: "What happens during pyruvate oxidation?", back: "Pyruvate loses a carbon as CO2 and becomes acetyl-CoA in the mitochondrial matrix, making 1 NADH per pyruvate." },
+    { front: "Why is the Krebs cycle called a cycle?", back: "Oxaloacetate is regenerated at the end, so it can combine with the next acetyl-CoA." },
+    { front: "What is the role of oxygen in respiration?", back: "Final electron acceptor of the electron transport chain; it combines with electrons and H+ to form water." },
+    { front: "What does ATP synthase do?", back: "Lets H+ flow back into the matrix down its gradient and uses that flow to make ATP, like a turbine." },
+    { front: "Why do cells ferment without oxygen?", back: "To regenerate NAD+ so glycolysis can continue producing 2 ATP." },
+    { front: "Lactic acid vs alcoholic fermentation?", back: "Muscle: pyruvate → lactate. Yeast: pyruvate → ethanol + CO2." },
+    { front: "Which stage makes the most ATP?", back: "Oxidative phosphorylation, about 26–28 ATP (around 90% of the total)." }
+  ],
+  quiz: [
+    { q: "Where in the cell does glycolysis take place?", options: ["Cytoplasm", "Mitochondrial matrix", "Inner mitochondrial membrane", "Nucleus"], answer: 0, explanation: "Glycolysis happens in the cytoplasm and does not need oxygen." },
+    { q: "What is the main value of the citric acid cycle to the cell?", options: ["It makes most of the cell's ATP", "It loads electron carriers (NADH, FADH2)", "It splits glucose in two", "It produces oxygen"], answer: 1, explanation: "It makes only 2 ATP per glucose; its real output is 6 NADH and 2 FADH2 for the electron transport chain." },
+    { q: "What would happen first if a cell ran out of oxygen?", options: ["Glycolysis would stop", "ATP synthase would reverse", "The electron transport chain would back up", "Pyruvate would become glucose"], answer: 2, explanation: "Oxygen is the final electron acceptor, so without it electrons cannot leave the chain and it stops." },
+    { q: "ATP synthase is powered by…", options: ["Direct transfer of phosphate from glucose", "H+ flowing back into the matrix", "Breaking down FADH2", "Oxygen binding to the enzyme"], answer: 1, explanation: "Chemiosmosis: the H+ gradient built by the chain drives ATP synthase." },
+    { q: "How much ATP does fermentation yield per glucose?", options: ["0", "2", "6", "30–32"], answer: 1, explanation: "Fermentation only regenerates NAD+; the ATP comes from glycolysis alone (2 net)." }
+  ],
+  videos: [{
+    id: "vexample", title: "How cells turn sugar into energy", focus: "", createdAt: 0,
+    scenes: [
+      { type: "title", heading: "How cells turn sugar into energy", sub: "Cellular respiration in about a minute", narration: "Every cell in your body runs on ATP. Here's how your cells make it from a single molecule of glucose, step by step." },
+      { type: "stat", value: "30–32 ATP", caption: "from one molecule of glucose", narration: "Breaking down one glucose molecule yields about thirty to thirty-two ATP. The trick is releasing that energy in small, controlled steps instead of all at once." },
+      { type: "flow", heading: "Four stages", steps: ["Glycolysis", "Pyruvate oxidation", "Krebs cycle", "Oxidative phosphorylation"], narration: "It happens in four stages. Glycolysis splits glucose in the cytoplasm. Pyruvate oxidation and the Krebs cycle strip out electrons inside the mitochondria. Oxidative phosphorylation cashes them in." },
+      { type: "term", term: "Electron carriers", definition: "NADH and FADH2: charged batteries that hold energy for the final stage.", narration: "The early stages make very little ATP directly. Their real product is loaded electron carriers, NADH and FADH2. Think of them as charged batteries." },
+      { type: "compare", heading: "With and without oxygen", left: { label: "Aerobic", points: ["Oxygen accepts the electrons", "About 30–32 ATP"] }, right: { label: "Fermentation", points: ["Only recycles NAD+", "Just 2 ATP"] }, narration: "Oxygen is the final electron acceptor. Without it the chain stops, and cells fall back on fermentation, which only recycles NAD plus and nets just two ATP." },
+      { type: "recap", heading: "Remember", points: ["Energy is released in small steps", "Carriers feed the transport chain", "ATP synthase makes about 90% of ATP"], narration: "So remember: energy comes out in small steps, electron carriers feed the transport chain, and ATP synthase, driven by a flow of protons, makes most of the ATP." }
+    ]
+  }],
+  explain: {}, cardState: {}, updatedAt: 0
+};
+
+/* ---------- state ---------- */
+const S = {
+  lectures: new Map([[SAMPLE_ID, SAMPLE]]),
+  materials: new Map([[SAMPLE_ID, SAMPLE_MAT]]),
+  currentId: SAMPLE_ID,
+  userPicked: false,
+  view: "lecture",
+  mode: pref("mode") || "notes",
+  store: null,
+  ai: undefined,           // undefined: checking; null: unavailable; function: ready
+  aiLimits: null,
+  job: null,
+  errors: new Map(),
+  chats: new Map(),
+  cards: new Map(),
+  quiz: new Map(),
+  teach: new Map(),
+  explainFocus: new Map(),
+  videoUI: new Map(),
+  explainStyle: pref("style") || "simple",
+  deleteArmed: false
+};
+const mat = id => S.materials.get(id) || { notes: null, flashcards: null, quiz: null, explain: {}, cardState: {}, updatedAt: 0 };
+
+/* ---------- storage: IndexedDB in this browser ---------- */
+function idbStore() {
+  const open = new Promise((res, rej) => {
+    const r = indexedDB.open("lecture-loop", 1);
+    r.onupgradeneeded = () => { r.result.createObjectStore("docs"); r.result.createObjectStore("audio"); };
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+  const tx = async (store, mode, fn) => {
+    const db = await open;
+    return new Promise((res, rej) => {
+      const t = db.transaction(store, mode), out = fn(t.objectStore(store));
+      t.oncomplete = () => res(out && out.result);
+      t.onerror = t.onabort = () => rej(t.error);
+    });
+  };
+  return {
+    kind: "local",
+    async subscribe(cb) {
+      const db = await open, t = db.transaction("docs"), s = t.objectStore("docs");
+      const keys = s.getAllKeys(), vals = s.getAll();
+      t.oncomplete = () => cb(keys.result.map((k, i) => [k, vals.result[i]]));
+    },
+    put: (id, data) => tx("docs", "readwrite", s => s.put(data, id)).catch(() => { throw { message: "This browser ran out of space. Delete an old lecture and try again." }; }),
+    del: id => tx("docs", "readwrite", s => s.delete(id)),
+    getAudio: key => tx("audio", "readonly", s => s.get(key)).catch(() => null),
+    putAudio: (key, val) => tx("audio", "readwrite", s => s.put(val, key)).catch(() => {}),
+    delAudio: prefix => tx("audio", "readwrite", s => s.delete(IDBKeyRange.bound(prefix, prefix + "￿"))).catch(() => {})
+  };
+}
+function memoryStore() {
+  const m = {};
+  return { kind: "memory", subscribe(cb) { cb([]); }, async put(id, d) { m[id] = d; }, async del(id) { delete m[id]; }, async getAudio() { return null; }, async putAudio() {}, async delAudio() {} };
+}
+function setStatus(kind, text) {
+  $("#status").replaceChildren(h("i", { class: "dot " + kind }), h("span", {}, text));
+}
+async function initStore() {
+  try {
+    if (!window.indexedDB) throw new Error("no idb");
+    const store = idbStore();
+    S.store = store;
+    await store.subscribe(docs => applyDocs(docs, true));
+    setStatus("ok", "Saved in this browser");
+  } catch {
+    S.store = memoryStore();
+    setStatus("warn", "Storage is blocked here, so lectures won't be kept after you close this tab");
+  }
+}
+function applyDocs(docs, first) {
+  const lecs = [], mats = new Map();
+  for (const [id, d] of docs) {
+    if (!d) continue;
+    if (d.type === "lecture") lecs.push({ ...d, id });
+    else if (d.type === "materials" && d.lecId) mats.set(d.lecId, d);
+  }
+  lecs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const next = new Map();
+  for (const l of lecs) next.set(l.id, l);
+  for (const [id, l] of S.lectures) if (l._pending && !next.has(id)) next.set(id, l);
+  next.set(SAMPLE_ID, SAMPLE);
+  S.lectures = next;
+  for (const [lid, m] of mats) {
+    const cur = S.materials.get(lid);
+    if (!cur || (m.updatedAt || 0) > (cur.updatedAt || 0)) S.materials.set(lid, m);
+  }
+  let changed = false;
+  if (!S.lectures.has(S.currentId)) { S.currentId = [...S.lectures.keys()][0]; changed = true; }
+  if (first && !S.userPicked && S.currentId === SAMPLE_ID && lecs.length) { S.currentId = lecs[0].id; changed = true; }
+  renderLibrary();
+  if (changed || first) renderMain();
+}
+
+const saveTimers = {};
+function setMat(id, patch) {
+  const m = { ...mat(id), ...patch, updatedAt: Date.now() };
+  S.materials.set(id, m);
+  if (id === SAMPLE_ID || !S.store) return;
+  clearTimeout(saveTimers[id]);
+  saveTimers[id] = setTimeout(() => {
+    const data = { ...S.materials.get(id), type: "materials", lecId: id };
+    S.store.put("M" + id, data).catch(e => flash(e.message || "Couldn't save your progress."));
+  }, 700);
+}
+function flash(msg) {
+  setStatus("warn", msg);
+}
+
+/* ---------- Claude ---------- */
+const HIDE = new Set(["passcode", "not_configured"]);
+function errText(e) {
+  const c = e && e.code;
+  const map = {
+    passcode: "The passcode was rejected. Enter it again to carry on.",
+    not_configured: "Claude isn't set up on this site yet. The site owner needs to finish the Netlify setup.",
+    timeout: "That took longer than the 60 seconds this site allows. Try a shorter lecture, or focus on one topic.",
+    bad_request: "The site couldn't read that request. Reload the page and try again.",
+    rate_limited: "You've reached a usage limit. Wait a little, then try again.",
+    prompt_too_large: "This lecture is too long to send at once. Split it into smaller lectures.",
+    refused: "Claude declined this request. Try rephrasing it.",
+    invalid_json: "The answer came back in an unexpected format. Try again.",
+    image_rejected: "One of the images couldn't be read. Use JPG or PNG files under 20 MB.",
+    empty_completion: "Claude returned an empty answer. Try again.",
+    bad_shape: "The answer was missing parts. Try again."
+  };
+  return map[c] || (e && e.message && !c ? e.message : "Couldn't reach Claude. Try again.");
+}
+/* ---------- Claude, through this site's /api/ask function ---------- */
+const PASS_KEY = "pass";
+function parseJsonLoose(text) {
+  const tries = [text], fence = text.match(/`{3}(?:json)?\s*([\s\S]*?)`{3}/);
+  if (fence) tries.push(fence[1]);
+  const a = text.search(/[\[{]/), b = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
+  if (a >= 0 && b > a) tries.push(text.slice(a, b + 1));
+  for (const t of tries) { try { return JSON.parse(t); } catch {} }
+  throw { code: "invalid_json", text };
+}
+async function shrinkImage(file) {
+  const bmp = await createImageBitmap(file), k = Math.min(1, 1568 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+  const url = c.toDataURL("image/jpeg", 0.85);
+  return { media_type: "image/jpeg", data: url.slice(url.indexOf(",") + 1) };
+}
+const post = (payload, signal) => fetch("/api/ask", {
+  method: "POST", signal,
+  headers: { "content-type": "application/json", "x-passcode": pref(PASS_KEY) || "" },
+  body: JSON.stringify(payload)
+});
+function makeAI() {
+  const call = async (input, opts = {}) => {
+    const turns = [];
+    for (const t of typeof input === "string" ? [{ role: "user", content: input }] : input) {
+      const last = turns[turns.length - 1];
+      if (last && last.role === t.role) last.content += "\n\n" + t.content; else turns.push({ role: t.role, content: t.content });
+    }
+    let images;
+    if (opts.images) { try { images = await Promise.all([...opts.images].map(shrinkImage)); } catch { throw { code: "image_rejected" }; } }
+    let res;
+    try { res = await post({ messages: turns, images }, opts.signal); }
+    catch (e) { throw { code: e && e.name === "AbortError" ? "cancelled" : "upstream_error" }; }
+    if (!res.ok) {
+      let code = res.status === 429 ? "rate_limited" : res.status === 413 ? "prompt_too_large" : "upstream_error";
+      if (res.status !== 429 && res.status !== 413) { try { code = (await res.json()).code || code; } catch {} }
+      if (code === "passcode") pref(PASS_KEY, "");
+      throw { code };
+    }
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let raw = "", shown = "";
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        raw += dec.decode(value, { stream: true });
+        const cut = raw.indexOf("\u0000"), text = cut < 0 ? raw : raw.slice(0, cut);
+        if (text.length > shown.length && text.trim()) { const delta = text.slice(shown.length); shown = text; if (opts.onText) opts.onText({ text, delta }); }
+      }
+    } catch { throw { code: opts.signal && opts.signal.aborted ? "cancelled" : "upstream_error", text: shown || undefined }; }
+    const cut = raw.indexOf("\u0000"), tail = cut < 0 ? "" : raw.slice(cut + 1);
+    if (tail.startsWith("ERR:")) throw { code: tail.slice(4).trim(), text: shown || undefined };
+    if (!tail.startsWith("END:")) { if (!shown.trim()) throw { code: "timeout" }; return { text: shown, truncated: true }; }
+    const stop = tail.slice(4).trim();
+    if (stop === "refusal") throw { code: "refused" };
+    if (!shown.trim()) throw { code: "empty_completion" };
+    return { text: shown, truncated: stop === "max_tokens" };
+  };
+  const ai = (i, o) => call(i, o);
+  ai.json = async (i, o) => { const r = await call(i, o); if (r.truncated) throw { code: "timeout", text: r.text }; return parseJsonLoose(r.text); };
+  ai.limits = async () => ({ images: { maxCount: 5 } });
+  return ai;
+}
+function initAI() {
+  S.aiLimits = { images: { maxCount: 5 } };
+  S.ai = pref(PASS_KEY) ? makeAI() : null;
+  syncAI();
+}
+async function tryPasscode(code) {
+  pref(PASS_KEY, code);
+  try {
+    const r = await post({ ping: true });
+    if (r.ok) { S.ai = makeAI(); return ""; }
+    const j = await r.json().catch(() => ({}));
+    pref(PASS_KEY, "");
+    return j.code === "not_configured" ? "The site owner hasn't set a passcode yet (SITE_PASSCODE in Netlify)." : r.status === 429 ? "Too many tries. Wait a minute, then try again." : "That passcode isn't right.";
+  } catch { pref(PASS_KEY, ""); return "Couldn't reach the site. Check your connection."; }
+}
+function syncAI() {
+  const off = !S.ai;
+  document.querySelectorAll("[data-ai]").forEach(b => { b.disabled = off || !!S.job; });
+  const ban = $("#aiBanner");
+  if (ban) ban.hidden = S.ai !== null;
+}
+function aiBanner() {
+  const input = h("input", { class: "input", id: "passIn", type: "password", placeholder: "Site passcode", autocomplete: "off", style: "max-width:240px" });
+  const note = h("span", { class: "note" });
+  const go = async () => {
+    if (!input.value) return;
+    note.textContent = "Checking…";
+    const err = await tryPasscode(input.value);
+    if (err) { note.textContent = err; return; }
+    renderMain();
+  };
+  input.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  return h("div", { class: "banner", id: "aiBanner", hidden: S.ai !== null },
+    h("div", { style: "margin-bottom:8px" }, "Enter the site passcode to make notes, quizzes, videos and explanations. The example lecture works without it."),
+    h("div", { class: "row" }, h("label", { class: "sr", for: "passIn" }, "Passcode"), input,
+      h("button", { class: "btn small primary", type: "button", onclick: go }, "Unlock"), note));
+}
+
+const MAX_PROMPT = 110000;
+const lectureBlock = lec => `LECTURE TITLE: ${lec.title}\n<lecture>\n${lec.text.slice(0, MAX_PROMPT)}\n</lecture>`;
+
+function runJob(kind, lecId, work) {
+  if (S.job || !S.ai) return;
+  const ctl = new AbortController();
+  S.job = { kind, lecId, ctl, text: "", listeners: new Set() };
+  S.errors.delete(lecId + ":" + kind);
+  refresh(kind, lecId);
+  const update = text => { if (!S.job) return; S.job.text = text; S.job.listeners.forEach(fn => fn(text)); };
+  Promise.resolve()
+    .then(() => work(ctl.signal, update))
+    .catch(e => {
+      if (e && e.code === "cancelled") return;
+      if (e && HIDE.has(e.code)) S.ai = null;
+      S.errors.set(lecId + ":" + kind, errText(e));
+    })
+    .finally(() => { S.job = null; refresh(kind, lecId); syncAI(); });
+}
+function refresh(kind, lecId) {
+  if (S.view === "lecture" && S.currentId === lecId && S.mode === kind) renderPanel();
+  else syncAI();
+}
+const isJob = (kind, lecId) => S.job && S.job.kind === kind && S.job.lecId === lecId;
+function jobBar(label) {
+  return h("div", { class: "bar" },
+    h("span", {}, h("span", { class: "pulse", "aria-hidden": "true" }), label),
+    h("button", { class: "btn small", type: "button", onclick: () => S.job && S.job.ctl.abort() }, "Stop"));
+}
+function liveMd(el, empty = "Thinking…") {
+  const paint = t => { el.innerHTML = t ? md(t) : `<p class="thinking">${empty}</p>`; };
+  let raf = 0, last = "";
+  paint(S.job ? S.job.text : "");
+  if (S.job) S.job.listeners.add(t => { last = t; if (!raf) raf = requestAnimationFrame(() => { raf = 0; paint(last); }); });
+  return el;
+}
+function errorFor(kind, lecId) {
+  const m = S.errors.get(lecId + ":" + kind);
+  return m ? h("div", { class: "err", role: "alert" }, m) : null;
+}
+
+/* ---------- prompts ---------- */
+const P = {
+  notes: lec => `You are an expert study coach. Turn this lecture into clear study notes in Markdown.
+Structure:
+- Start with a bold "Overview." line of 2–3 sentences.
+- Then "## " sections for each main topic, with concise bullet points; **bold** key terms.
+- Where the lecture has stages, steps, or comparisons, add a Markdown table.
+- A "## Key terms" table (Term | Meaning).
+- End with "## Likely exam questions": 5 numbered questions.
+Use only the lecture's content. If something important seems missing, note it briefly as "(not covered in the lecture)". No preamble.
+
+${lectureBlock(lec)}`,
+  cards: lec => `Create 16 flashcards for active recall from this lecture. Mix definitions, cause and effect, comparisons, "why" questions and application. Fronts are questions under 20 words. Backs answer in under 40 words. Use only the lecture's content.
+Reply with only JSON in exactly this shape: {"cards":[{"front":"...","back":"..."}]}
+
+${lectureBlock(lec)}`,
+  quiz: lec => `Write a 10-question multiple-choice quiz on this lecture. Order from easier recall to harder application. Each question has exactly 4 options with one correct answer, and plausible distractors drawn from real misconceptions. The explanation says in 1–2 sentences why the answer is right.
+Reply with only JSON in exactly this shape: {"questions":[{"q":"...","options":["...","...","...","..."],"answer":0,"explanation":"..."}]} where "answer" is the 0-based index of the correct option.
+
+${lectureBlock(lec)}`,
+  explain: (lec, style, focus) => `You are a patient, expert tutor. Using the lecture below as the source of truth, ${style.prompt}
+${focus ? `Focus only on: ${focus}.` : "Cover the lecture's main ideas in a sensible order."}
+Write in Markdown, under 700 words, with no preamble. If something isn't in the lecture, say so briefly instead of inventing details.
+
+${lectureBlock(lec)}`,
+  tutor: lec => `You are a Socratic tutor helping a student learn the lecture below.
+Rules: keep each reply under 150 words. Ask one question at a time. When the student answers, say clearly whether they are right and why, then take them one step further. Give hints before answers. Ground everything in the lecture and say when something goes beyond it. Use Markdown sparingly.
+
+${lectureBlock(lec)}
+
+The student's messages follow.`,
+  teach: (lec, concept, expl) => `A student is using the Feynman technique: they explain a concept from the lecture in their own words, and you grade it against the lecture.
+Concept: ${concept || "(the student did not name one; infer it)"}
+Student's explanation:
+"""
+${expl}
+"""
+Grade accuracy, completeness and clarity together as a score from 0 to 100. Be encouraging but honest.
+Reply with only JSON in exactly this shape:
+{"score":0,"verdict":"one sentence","strengths":["..."],"gaps":["important things missing"],"misconceptions":["things stated incorrectly; empty array if none"],"better":"a model explanation in under 120 words, in plain language"}
+
+${lectureBlock(lec)}`,
+  video: (lec, focus, long) => `Plan a short animated explainer video (about ${long ? "2 minutes" : "60 seconds"}) that teaches ${focus ? `"${focus}"` : "the core ideas of this lecture"} to a student. It will be rendered as animated slides with a voice-over, so the narration carries the detail and the on-screen text stays short.
+Write ${long ? "9 to 10" : "6"} scenes. Every scene has "narration": what the narrator says, 1–3 conversational sentences, 15–40 words, written to be spoken aloud (spell out symbols). Each scene also uses one visual type:
+- "title": "heading" (max 8 words), "sub" (max 10 words). First scene only.
+- "points": "heading" (max 6 words), "points": 2–4 phrases of max 8 words.
+- "flow": "heading", "steps": 3–5 labels of max 4 words. For processes, sequences, cause and effect.
+- "compare": "heading", "left": {"label","points":[2–3 phrases]}, "right": {"label","points":[2–3 phrases]}.
+- "term": "term", "definition" (max 20 words).
+- "stat": "value" (a short number or quantity from the lecture), "caption" (max 10 words).
+- "recap": "heading", "points": exactly 3 takeaways of max 8 words. Last scene only.
+Vary the visual types and build understanding in a logical order. Use only facts from the lecture. Write in British English: British spelling, vocabulary and phrasing, as a friendly British narrator would say it.
+Reply with only JSON in this shape: {"title":"video title, max 8 words","scenes":[{"type":"title","heading":"...","sub":"...","narration":"..."}]}
+
+${lectureBlock(lec)}`,
+  images: () => `These images are from a lecture: slides, a whiteboard, or handwritten notes. Transcribe all the text faithfully in reading order as plain text. Describe each diagram, chart or equation in words inside [square brackets]. Start each image with a line "--- Image N ---". No other commentary.`
+};
+const STYLES = [
+  { id: "simple", label: "Simply", hint: "Plain words, no jargon", prompt: "explain it in plain language a curious 12-year-old could follow. Use short sentences and define any technical term the first time it appears." },
+  { id: "analogy", label: "With analogies", hint: "Everyday comparisons", prompt: "explain each main idea through a vivid everyday analogy, then say in one line where the analogy breaks down." },
+  { id: "steps", label: "Step by step", hint: "Build it up slowly", prompt: "build understanding step by step from the foundations. Number each step, add one idea per step, and end each step with a one-line \"Check:\" question." },
+  { id: "story", label: "As a story", hint: "A memorable narrative", prompt: "teach it as a short story with characters or a journey so the sequence of ideas sticks. After the story, add a short list mapping each story element to the real concept." },
+  { id: "deep", label: "Deep dive", hint: "University depth", prompt: "give a rigorous, university-level explanation: mechanisms, why it works, how the ideas connect, edge cases, and common misconceptions." },
+  { id: "cram", label: "Exam cram", hint: "One-page cheat sheet", prompt: "write a one-page exam cram sheet: must-know facts, definitions or formulas, a mnemonic or two, and the traps examiners like to set." },
+  { id: "memory", label: "Memory hooks", hint: "Mnemonics and images", prompt: "give memory hooks for the key facts: mnemonics, acronyms, vivid mental images, and rhymes, each tied to the fact it helps recall." }
+];
+
+/* ---------- library ---------- */
+function renderLibrary() {
+  const lib = $("#lib");
+  lib.replaceChildren(...[...S.lectures.values()].map(l =>
+    h("button", {
+      class: "lib-item", type: "button", "aria-current": S.view === "lecture" && l.id === S.currentId ? "true" : "false",
+      onclick: () => selectLecture(l.id)
+    },
+      h("span", { class: "t" }, l.title, l.example ? h("span", { class: "tag" }, "Example") : null),
+      h("span", { class: "m" }, `${l.source || "Text"} · ${fmt(l.words || words(l.text))} words`))));
+}
+function selectLecture(id) {
+  S.currentId = id; S.view = "lecture"; S.userPicked = true; S.deleteArmed = false;
+  renderLibrary(); renderMain();
+}
+
+/* ---------- main ---------- */
+const MODES = [
+  ["notes", "Notes"], ["explain", "Explain"], ["video", "Video"], ["cards", "Flashcards"],
+  ["quiz", "Quiz"], ["tutor", "Tutor"], ["teach", "Teach it back"], ["source", "Source"]
+];
+function renderMain() {
+  stopPlayer();
+  const main = $("#main");
+  main.replaceChildren();
+  if (S.view === "add") { main.append(renderAdd()); syncAI(); return; }
+  const lec = S.lectures.get(S.currentId);
+  if (!lec) return;
+  const w = lec.words || words(lec.text);
+  const del = !lec.example ? h("button", {
+    class: "btn small danger" + (S.deleteArmed ? " armed" : ""), type: "button",
+    onclick: () => S.deleteArmed ? deleteLecture(lec.id) : (S.deleteArmed = true, renderMain())
+  }, S.deleteArmed ? "Confirm delete" : "Delete") : null;
+  main.append(
+    h("div", { class: "head" },
+      h("div", { style: "min-width:0" },
+        h("h2", {}, lec.title),
+        h("div", { class: "meta" },
+          h("span", {}, lec.example ? "Example lecture" : lec.source || "Text"),
+          h("span", {}, fmt(w) + " words"),
+          h("span", {}, "~" + Math.max(1, Math.round(w / 200)) + " min read"),
+          lec.createdAt ? h("span", {}, "Added " + dateStr(lec.createdAt)) : null)),
+      h("div", { class: "row" }, S.deleteArmed ? h("button", { class: "btn small ghost", type: "button", onclick: () => { S.deleteArmed = false; renderMain(); } }, "Cancel") : null, del)),
+    h("div", { class: "tabs", role: "tablist", "aria-label": "Study modes" },
+      MODES.map(([id, label]) => h("button", {
+        class: "tab", role: "tab", type: "button", "aria-selected": S.mode === id ? "true" : "false",
+        onclick: () => { S.mode = id; pref("mode", id); renderMain(); }
+      }, label))),
+    h("div", { class: "panel", id: "panel", role: "tabpanel" }));
+  renderPanel();
+}
+function renderPanel() {
+  const panel = $("#panel");
+  if (!panel) return;
+  stopPlayer();
+  if (S.job) S.job.listeners.clear();
+  const lec = S.lectures.get(S.currentId);
+  if (!lec) return;
+  const fn = { notes: vNotes, explain: vExplain, video: vVideo, cards: vCards, quiz: vQuiz, tutor: vTutor, teach: vTeach, source: vSource }[S.mode] || vNotes;
+  panel.replaceChildren(S.mode !== "source" ? aiBanner() : "", fn(lec));
+  syncAI();
+}
+async function deleteLecture(id) {
+  S.deleteArmed = false;
+  S.lectures.delete(id); S.materials.delete(id);
+  S.currentId = [...S.lectures.keys()][0];
+  renderLibrary(); renderMain();
+  try { await S.store.del(id); await S.store.del("M" + id); } catch { flash("Couldn't delete everything. Try again later."); }
+}
+
+/* ---------- Notes ---------- */
+function vNotes(lec) {
+  const m = mat(lec.id);
+  if (isJob("notes", lec.id)) return h("div", {}, jobBar("Writing your study notes"), liveMd(h("div", { class: "prose" })));
+  const err = errorFor("notes", lec.id);
+  if (!m.notes) return h("div", {}, err, h("div", { class: "empty" },
+    h("h3", {}, "Study notes"),
+    h("p", {}, "A structured summary of this lecture: main ideas, key terms, comparison tables, and the questions you're most likely to be asked."),
+    h("button", { class: "btn primary", type: "button", "data-ai": "", onclick: () => genNotes(lec) }, "Write my notes")));
+  const copyBtn = h("button", { class: "btn small ghost", type: "button", onclick: async () => {
+    try { await navigator.clipboard.writeText(m.notes); copyBtn.textContent = "Copied"; }
+    catch { copyBtn.textContent = "Select the text to copy"; }
+    setTimeout(() => (copyBtn.textContent = "Copy as Markdown"), 1800);
+  } }, "Copy as Markdown");
+  return h("div", {}, err,
+    h("div", { class: "toolbar" }, h("span", { class: "label" }, lec.example ? "Example notes" : "Study notes"),
+      h("div", { class: "row" }, copyBtn, h("button", { class: "btn small", type: "button", "data-ai": "", onclick: () => genNotes(lec) }, "Rewrite"))),
+    h("div", { class: "prose", html: md(m.notes) }));
+}
+function genNotes(lec) {
+  runJob("notes", lec.id, async (signal, update) => {
+    const r = await S.ai(P.notes(lec), { signal, onText: ({ text }) => update(text), cache: false });
+    setMat(lec.id, { notes: r.text });
+    if (r.truncated) S.errors.set(lec.id + ":notes", "The notes were cut short because the lecture is long. Split it into parts for complete notes.");
+  });
+}
+
+/* ---------- Explain ---------- */
+function vExplain(lec) {
+  const m = mat(lec.id);
+  const style = STYLES.find(s => s.id === S.explainStyle) || STYLES[0];
+  const focusIn = h("input", { class: "input", id: "focus", type: "text", placeholder: "Optional: a topic to focus on, e.g. the electron transport chain", value: S.explainFocus.get(lec.id) || "",
+    oninput: e => S.explainFocus.set(lec.id, e.target.value),
+    onkeydown: e => { if (e.key === "Enter") go(); } });
+  const go = () => genExplain(lec, style, (S.explainFocus.get(lec.id) || "").trim());
+  const saved = m.explain && m.explain[style.id];
+  let out;
+  if (isJob("explain", lec.id)) out = h("div", {}, jobBar(`Explaining ${style.label.toLowerCase()}`), liveMd(h("div", { class: "prose" })));
+  else if (saved) out = h("div", {},
+    h("div", { class: "label", style: "margin-bottom:12px" }, `${style.label}${saved.focus ? " · " + saved.focus : ""}`),
+    h("div", { class: "prose", html: md(saved.text) }));
+  else out = h("p", { class: "note" }, "Pick a teaching style and press Explain. Each style keeps its latest explanation so you can switch between them.");
+  return h("div", {},
+    h("div", { class: "label", style: "margin-bottom:10px" }, "How should it be taught?"),
+    h("div", { class: "styles" }, STYLES.map(s => h("button", {
+      class: "style", type: "button", "aria-pressed": s.id === style.id ? "true" : "false",
+      onclick: () => { S.explainStyle = s.id; pref("style", s.id); renderPanel(); }
+    }, h("b", {}, s.label), h("small", {}, s.hint)))),
+    h("div", { class: "row", style: "flex-wrap:nowrap" }, h("div", { style: "flex:1;min-width:0" }, focusIn),
+      h("button", { class: "btn primary", type: "button", "data-ai": "", onclick: go }, "Explain")),
+    h("div", { class: "divider" }),
+    errorFor("explain", lec.id), out);
+}
+function genExplain(lec, style, focus) {
+  runJob("explain", lec.id, async (signal, update) => {
+    const r = await S.ai(P.explain(lec, style, focus), { signal, onText: ({ text }) => update(text), cache: false });
+    setMat(lec.id, { explain: { ...(mat(lec.id).explain || {}), [style.id]: { text: r.text, focus } } });
+  });
+}
+
+/* ---------- Flashcards ---------- */
+function vCards(lec) {
+  const m = mat(lec.id);
+  if (isJob("cards", lec.id)) {
+    const c = h("p", { class: "note" }, "Starting…");
+    S.job.listeners.add(t => { const n = (t.match(/"front"/g) || []).length; c.textContent = n ? `${n} cards written so far` : "Thinking…"; });
+    return h("div", {}, jobBar("Making flashcards"), c);
+  }
+  const err = errorFor("cards", lec.id);
+  const cards = Array.isArray(m.flashcards) ? m.flashcards : null;
+  if (!cards || !cards.length) return h("div", {}, err, h("div", { class: "empty" },
+    h("h3", {}, "Flashcards"),
+    h("p", {}, "Question-and-answer cards for active recall. Flip each one, then mark whether you knew it. Cards you miss come back until you've got them."),
+    h("button", { class: "btn primary", type: "button", "data-ai": "", onclick: () => genCards(lec) }, "Make flashcards")));
+  const st = m.cardState || {};
+  const ses = S.cards.get(lec.id) || { i: 0, flipped: false, filter: "all", order: cards.map((_, i) => i) };
+  if (ses.order.length !== cards.length) ses.order = cards.map((_, i) => i);
+  S.cards.set(lec.id, ses);
+  const pool = ses.order.filter(i => ses.filter === "all" || st[i] !== "known");
+  const known = cards.filter((_, i) => st[i] === "known").length;
+  const head = h("div", { class: "toolbar" },
+    h("div", { class: "row" },
+      h("div", { class: "seg", role: "group", "aria-label": "Which cards" },
+        h("button", { type: "button", "aria-pressed": ses.filter === "all" ? "true" : "false", onclick: () => { ses.filter = "all"; ses.i = 0; ses.flipped = false; renderPanel(); } }, `All ${cards.length}`),
+        h("button", { type: "button", "aria-pressed": ses.filter === "learning" ? "true" : "false", onclick: () => { ses.filter = "learning"; ses.i = 0; ses.flipped = false; renderPanel(); } }, `Still learning ${cards.length - known}`)),
+      h("button", { class: "btn small ghost", type: "button", onclick: () => { ses.order = shuffle(ses.order); ses.i = 0; ses.flipped = false; renderPanel(); } }, "Shuffle")),
+    h("div", { class: "row" },
+      h("button", { class: "btn small ghost", type: "button", onclick: () => { setMat(lec.id, { cardState: {} }); ses.i = 0; ses.flipped = false; renderPanel(); } }, "Reset progress"),
+      h("button", { class: "btn small", type: "button", "data-ai": "", onclick: () => genCards(lec) }, "New cards")));
+  const bar = h("div", { class: "progress", "aria-label": `${known} of ${cards.length} known` }, h("i", { style: `width:${(known / cards.length) * 100}%` }));
+  if (!pool.length) return h("div", { class: "deck" }, err, head, bar, h("div", { class: "empty" },
+    h("h3", {}, `All ${cards.length} cards known`),
+    h("p", {}, "Nice work. Reset your progress to go again, or test yourself with the quiz."),
+    h("button", { class: "btn", type: "button", onclick: () => { S.mode = "quiz"; renderMain(); } }, "Take the quiz")));
+  if (ses.i >= pool.length) ses.i = 0;
+  const idx = pool[ses.i], card = cards[idx];
+  const flip = () => { ses.flipped = !ses.flipped; fc.classList.toggle("flipped", ses.flipped); fc.setAttribute("aria-label", ses.flipped ? "Answer shown. Press to show question" : "Press to show answer"); };
+  const mark = v => {
+    setMat(lec.id, { cardState: { ...(mat(lec.id).cardState || {}), [idx]: v } });
+    ses.flipped = false;
+    if (!(ses.filter === "learning" && v === "known")) ses.i++;
+    renderPanel();
+    const f = $(".fc"); if (f) f.focus();
+  };
+  const move = d => { ses.i = (ses.i + d + pool.length) % pool.length; ses.flipped = false; renderPanel(); const f = $(".fc"); if (f) f.focus(); };
+  const fc = h("div", {
+    class: "fc" + (ses.flipped ? " flipped" : ""), tabindex: "0", role: "button", "aria-label": ses.flipped ? "Answer shown. Press to show question" : "Press to show answer",
+    onclick: flip,
+    onkeydown: e => {
+      if (e.key === " " || e.key === "Enter") { e.preventDefault(); flip(); }
+      else if (e.key === "ArrowRight") move(1); else if (e.key === "ArrowLeft") move(-1);
+      else if (e.key === "1") mark("again"); else if (e.key === "2") mark("known");
+    }
+  }, h("div", { class: "fc-inner" },
+    h("div", { class: "face front" }, h("span", { class: "label corner" }, "Question"), h("div", { class: "q" }, card.front), h("span", { class: "hint" }, "Click or press Space to flip")),
+    h("div", { class: "face back" }, h("span", { class: "label corner" }, "Answer"), h("div", { class: "a" }, card.back), h("span", { class: "hint" }, "1 = again · 2 = got it"))));
+  return h("div", { class: "deck" }, err, head, bar, fc,
+    h("div", { class: "toolbar", style: "margin:0" },
+      h("div", { class: "row" },
+        h("button", { class: "btn small ghost", type: "button", "aria-label": "Previous card", onclick: () => move(-1) }, "←"),
+        h("span", { class: "mono note" }, `${ses.i + 1} / ${pool.length}`),
+        h("button", { class: "btn small ghost", type: "button", "aria-label": "Next card", onclick: () => move(1) }, "→")),
+      h("div", { class: "row" },
+        h("button", { class: "btn again", type: "button", onclick: () => mark("again") }, "Again"),
+        h("button", { class: "btn good", type: "button", onclick: () => mark("known") }, "Got it"))));
+}
+function genCards(lec) {
+  runJob("cards", lec.id, async (signal, update) => {
+    const data = await S.ai.json(P.cards(lec), { signal, onText: ({ text }) => update(text), cache: false });
+    const cards = (data && Array.isArray(data.cards) ? data.cards : [])
+      .filter(c => c && c.front && c.back).map(c => ({ front: String(c.front), back: String(c.back) }));
+    if (!cards.length) throw { code: "bad_shape" };
+    S.cards.delete(lec.id);
+    setMat(lec.id, { flashcards: cards, cardState: {} });
+  });
+}
+
+/* ---------- Quiz ---------- */
+function vQuiz(lec) {
+  const m = mat(lec.id);
+  if (isJob("quiz", lec.id)) {
+    const c = h("p", { class: "note" }, "Thinking…");
+    S.job.listeners.add(t => { const n = (t.match(/"q"\s*:/g) || []).length; c.textContent = n ? `${n} of 10 questions written` : "Thinking…"; });
+    return h("div", {}, jobBar("Writing your quiz"), c);
+  }
+  const err = errorFor("quiz", lec.id);
+  const qs = Array.isArray(m.quiz) ? m.quiz : null;
+  if (!qs || !qs.length) return h("div", {}, err, h("div", { class: "empty" },
+    h("h3", {}, "Practice quiz"),
+    h("p", {}, "Ten multiple-choice questions from easy recall to harder application, each with an explanation of the right answer."),
+    h("button", { class: "btn primary", type: "button", "data-ai": "", onclick: () => genQuiz(lec) }, "Make a quiz")));
+  const ses = S.quiz.get(lec.id) || { i: 0, picks: [] };
+  S.quiz.set(lec.id, ses);
+  const restart = () => { S.quiz.set(lec.id, { i: 0, picks: [] }); renderPanel(); };
+  if (ses.i >= qs.length) {
+    const right = qs.filter((q, i) => ses.picks[i] === q.answer).length;
+    const misses = qs.map((q, i) => [q, i]).filter(([q, i]) => ses.picks[i] !== q.answer);
+    return h("div", { class: "quiz" }, err,
+      h("div", { class: "label" }, "Result"),
+      h("div", { class: "score" }, h("b", {}, `${right}/${qs.length}`), h("span", { class: "note" }, right === qs.length ? "Perfect score." : right >= qs.length * 0.7 ? "Solid. Review the ones you missed." : "Worth another pass. Try the flashcards on the topics below.")),
+      m.quizLast && m.quizLast.prev != null ? h("div", { class: "note mono" }, `Previous attempt: ${m.quizLast.prev}/${qs.length}`) : null,
+      misses.length ? h("div", {}, h("div", { class: "label", style: "margin-bottom:8px" }, "Review"),
+        misses.map(([q, i]) => h("div", { class: "miss" },
+          h("b", {}, q.q),
+          h("span", { style: "color:var(--bad)" }, "You said: " + (q.options[ses.picks[i]] ?? "–")),
+          h("span", { style: "color:var(--good)" }, "Answer: " + q.options[q.answer]),
+          h("span", { class: "note" }, q.explanation)))) : null,
+      h("div", { class: "row" },
+        h("button", { class: "btn primary", type: "button", onclick: restart }, "Retake"),
+        h("button", { class: "btn", type: "button", "data-ai": "", onclick: () => genQuiz(lec) }, "New questions")));
+  }
+  const q = qs[ses.i], picked = ses.picks[ses.i];
+  const done = picked != null;
+  const choose = k => {
+    if (done) return;
+    ses.picks[ses.i] = k;
+    if (ses.i === qs.length - 1) {
+      const right = qs.filter((qq, i) => ses.picks[i] === qq.answer).length;
+      setMat(lec.id, { quizLast: { score: right, prev: m.quizLast ? m.quizLast.score : null, at: Date.now() } });
+    }
+    renderPanel();
+  };
+  return h("div", { class: "quiz" }, err,
+    h("div", { class: "toolbar", style: "margin:0" },
+      h("span", { class: "label" }, `Question ${ses.i + 1} of ${qs.length}`),
+      h("button", { class: "btn small ghost", type: "button", "data-ai": "", onclick: () => genQuiz(lec) }, "New quiz")),
+    h("div", { class: "progress" }, h("i", { style: `width:${(ses.i / qs.length) * 100}%` })),
+    h("div", { class: "qtext" }, q.q),
+    h("div", { class: "opts" }, q.options.map((o, k) => h("button", {
+      class: "opt" + (done && k === q.answer ? " right" : "") + (done && k === picked && k !== q.answer ? " wrong" : ""),
+      type: "button", disabled: done, onclick: () => choose(k)
+    }, h("span", { class: "k" }, "ABCD"[k]), h("span", {}, o)))),
+    done ? h("div", { class: "explain" },
+      h("b", { style: `color:var(${picked === q.answer ? "--good" : "--bad"})` }, picked === q.answer ? "Correct. " : "Not quite. "), q.explanation) : null,
+    done ? h("div", {}, h("button", { class: "btn primary", type: "button", onclick: () => { ses.i++; renderPanel(); } }, ses.i === qs.length - 1 ? "See result" : "Next question")) : null);
+}
+function genQuiz(lec) {
+  runJob("quiz", lec.id, async (signal, update) => {
+    const data = await S.ai.json(P.quiz(lec), { signal, onText: ({ text }) => update(text), cache: false });
+    const qs = (data && Array.isArray(data.questions) ? data.questions : [])
+      .filter(q => q && q.q && Array.isArray(q.options) && q.options.length >= 2 && Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.options.length)
+      .map(q => {
+        const order = shuffle(q.options.map((_, i) => i));
+        return { q: String(q.q), options: order.map(i => String(q.options[i])), answer: order.indexOf(q.answer), explanation: String(q.explanation || "") };
+      });
+    if (!qs.length) throw { code: "bad_shape" };
+    S.quiz.delete(lec.id);
+    setMat(lec.id, { quiz: qs });
+  });
+}
+
+/* ---------- Tutor ---------- */
+function vTutor(lec) {
+  const turns = S.chats.get(lec.id) || [];
+  const running = isJob("tutor", lec.id);
+  const box = h("textarea", { class: "textarea", id: "tutorIn", rows: "2", placeholder: "Ask anything about this lecture, or say \"quiz me\"",
+    onkeydown: e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(box.value); } } });
+  const send = text => {
+    text = String(text || "").trim();
+    if (!text || S.job || !S.ai) return;
+    const t = [...(S.chats.get(lec.id) || []), { role: "user", content: text }];
+    S.chats.set(lec.id, t);
+    runJob("tutor", lec.id, async (signal, update) => {
+      const hist = t.slice(-20);
+      const r = await S.ai([{ role: "user", content: P.tutor(lec) }, ...hist], { signal, onText: ({ text }) => update(text), cache: false });
+      S.chats.set(lec.id, [...t, { role: "assistant", content: r.text }]);
+    });
+  };
+  const starters = ["Quiz me on the main ideas", "What should I focus on for the exam?", "Explain the hardest part of this lecture", "Check I understand the first topic"];
+  const msgs = h("div", { class: "msgs", "aria-live": "polite" },
+    turns.map(t => t.role === "user" ? h("div", { class: "msg user" }, t.content) : h("div", { class: "msg assistant prose", html: md(t.content) })),
+    running ? liveMd(h("div", { class: "msg assistant prose" })) : null);
+  return h("div", { class: "chat" },
+    !turns.length ? h("div", { class: "empty", style: "padding:0" },
+      h("h3", {}, "Your tutor"),
+      h("p", {}, "A patient tutor who knows this lecture. It asks questions back, gives hints before answers, and tells you plainly when you've got something right.")) : null,
+    msgs,
+    errorFor("tutor", lec.id),
+    running ? jobBar("Tutor is replying") : null,
+    !turns.length ? h("div", { class: "chips" }, starters.map(s => h("button", { class: "chip", type: "button", "data-ai": "", onclick: () => send(s) }, s))) : null,
+    h("div", { class: "compose" }, h("div", { style: "flex:1;min-width:0" }, h("label", { class: "sr", for: "tutorIn" }, "Message"), box),
+      h("button", { class: "btn primary", type: "button", "data-ai": "", onclick: () => send(box.value) }, "Send")),
+    turns.length ? h("div", {}, h("button", { class: "btn small ghost", type: "button", onclick: () => { S.chats.delete(lec.id); renderPanel(); } }, "Start over")) : null);
+}
+
+/* ---------- Teach it back ---------- */
+function vTeach(lec) {
+  const st = S.teach.get(lec.id) || { concept: "", text: "", result: null };
+  S.teach.set(lec.id, st);
+  const running = isJob("teach", lec.id);
+  const concept = h("input", { class: "input", id: "teachConcept", type: "text", value: st.concept, placeholder: "e.g. chemiosmosis", oninput: e => (st.concept = e.target.value) });
+  const ta = h("textarea", { class: "textarea", id: "teachText", rows: "7", placeholder: "Explain it as if you were teaching a friend who missed the lecture. Use your own words.", oninput: e => (st.text = e.target.value) });
+  ta.value = st.text;
+  const r = st.result;
+  let res = null;
+  if (running) res = jobBar("Checking your explanation");
+  else if (r) {
+    const color = r.score >= 80 ? "var(--good)" : r.score >= 55 ? "var(--accent)" : "var(--bad)";
+    const list = (title, items, col) => items && items.length ? h("div", {}, h("h4", { style: `color:${col}` }, title), h("ul", {}, items.map(i => h("li", {}, i)))) : null;
+    res = h("div", { class: "teach" },
+      h("div", { class: "grade" },
+        h("div", { class: "ring", style: `--v:${r.score};--ring:${color}`, role: "img", "aria-label": `Score ${r.score} out of 100` }, h("div", {}, r.score)),
+        h("div", {}, h("div", { class: "label" }, "Your explanation"), h("div", { style: "font-weight:700;font-size:18px" }, r.verdict))),
+      h("div", { class: "cols" },
+        list("What you got right", r.strengths, "var(--good)"),
+        list("What's missing", r.gaps, "var(--accent)"),
+        list("Not quite right", r.misconceptions, "var(--bad)")),
+      r.better ? h("div", {}, h("div", { class: "label", style: "margin-bottom:6px" }, "A stronger version"), h("div", { class: "prose", html: md(r.better) })) : null);
+  }
+  return h("div", { class: "teach" },
+    h("div", { class: "empty", style: "padding:0" },
+      h("h3", {}, "Teach it back"),
+      h("p", {}, "The fastest way to find gaps is to explain a topic yourself. Write your explanation and get a score with what you missed.")),
+    h("div", { class: "field" }, h("label", { class: "label", for: "teachConcept" }, "Topic"), concept),
+    h("div", { class: "field" }, h("label", { class: "label", for: "teachText" }, "Your explanation"), ta),
+    h("div", {}, h("button", { class: "btn primary", type: "button", "data-ai": "", onclick: () => {
+      if (words(st.text) < 8) { S.errors.set(lec.id + ":teach", "Write at least a couple of sentences first."); renderPanel(); return; }
+      runJob("teach", lec.id, async signal => {
+        const d = await S.ai.json(P.teach(lec, st.concept.trim(), st.text.trim()), { signal, cache: false });
+        if (!d || typeof d.score !== "number") throw { code: "bad_shape" };
+        const arr = v => Array.isArray(v) ? v.map(String).filter(Boolean) : [];
+        st.result = { score: Math.max(0, Math.min(100, Math.round(d.score))), verdict: String(d.verdict || ""), strengths: arr(d.strengths), gaps: arr(d.gaps), misconceptions: arr(d.misconceptions), better: String(d.better || "") };
+      });
+    } }, "Check my explanation")),
+    errorFor("teach", lec.id), res);
+}
+
+/* ---------- Video: Claude writes a storyboard, the page animates and narrates it ---------- */
+// The video frame keeps one fixed "lecture notebook at night" look in both themes, so exports match what you watched.
+const VC = { bg: "#10152A", panel: "#1B2242", rule: "rgba(255,255,255,.045)", text: "#F2F4FA", muted: "#AAB3CF", hl: "#FFE14D", accent: "#8EA2FF", ink: "#10152A" };
+const VF = { d: '"Bricolage Grotesque", "Segoe UI", sans-serif', b: '"Atkinson Hyperlegible", "Segoe UI", sans-serif', m: '"JetBrains Mono", Consolas, monospace' };
+const VW = 1280, VH = 720, X0 = 120, TW = VW - 2 * X0;
+const clamp01 = v => Math.max(0, Math.min(1, v));
+const ease = v => 1 - Math.pow(1 - clamp01(v), 3);
+const appear = (t, at, d = 0.5) => ease((t - at) / d);
+const sceneDur = s => Math.max(4.5, words(s.narration || "") / 2.6 + 1.5);
+const hasTTS = "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined";
+const VOPT = { voice: pref("voice") !== "off", captions: pref("cc") !== "off", narrator: pref("narrator") || "bf_emma" };
+const isGB = v => /^en[-_]GB/i.test(v.lang);
+
+function wrapLines(ctx, text, maxW) {
+  const out = []; let line = "";
+  for (const w of String(text || "").split(/\s+/).filter(Boolean)) {
+    const test = line ? line + " " + w : w;
+    if (ctx.measureText(test).width > maxW && line) { out.push(line); line = w; } else line = test;
+  }
+  if (line) out.push(line);
+  return out;
+}
+function vtext(ctx, text, x, y, o = {}) {
+  const { size = 34, font = VF.b, weight = 400, color = VC.text, maxW = TW, lh = 1.25, align = "left", maxLines = 4 } = o;
+  ctx.save();
+  ctx.font = `${weight} ${size}px ${font}`; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = "alphabetic";
+  let lines = wrapLines(ctx, text, maxW);
+  if (lines.length > maxLines) { lines = lines.slice(0, maxLines); lines[maxLines - 1] += "…"; }
+  lines.forEach((l, i) => ctx.fillText(l, x, y + i * size * lh));
+  ctx.restore();
+  return lines.length * size * lh;
+}
+function fitSize(ctx, text, size, weight, font, maxW, maxLines) {
+  let s = size;
+  while (s > 20) { ctx.font = `${weight} ${s}px ${font}`; if (wrapLines(ctx, text, maxW).length <= maxLines) break; s -= 2; }
+  return s;
+}
+function lineCount(ctx, text, size, weight, font, maxW, max) { ctx.font = `${weight} ${size}px ${font}`; return Math.max(1, Math.min(max, wrapLines(ctx, text, maxW).length)); }
+function rrect(ctx, x, y, w, h, r) { ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h); }
+function rise(ctx, a, fn) { if (a <= 0) return; ctx.save(); ctx.globalAlpha *= a; ctx.translate(0, (1 - a) * 22); fn(); ctx.restore(); }
+function vHeading(ctx, text, t, y = 176) {
+  const s = fitSize(ctx, text, 56, 800, VF.d, TW, 2), n = lineCount(ctx, text, s, 800, VF.d, TW, 2);
+  rise(ctx, appear(t, 0.1), () => vtext(ctx, text, X0, y, { size: s, font: VF.d, weight: 800, maxLines: 2, lh: 1.1 }));
+  const by = y + (n - 1) * s * 1.1 + 22;
+  ctx.fillStyle = VC.hl; ctx.fillRect(X0, by, 140 * appear(t, 0.35, 0.6), 6);
+  return by + 22;
+}
+const VIS = {
+  title(ctx, s, t) {
+    const sz = fitSize(ctx, s.heading, 84, 800, VF.d, TW, 3), n = lineCount(ctx, s.heading, sz, 800, VF.d, TW, 3);
+    const y0 = 300 - (n - 1) * sz * 0.5;
+    rise(ctx, appear(t, 0.1, 0.7), () => vtext(ctx, s.heading, X0, y0, { size: sz, font: VF.d, weight: 800, maxLines: 3, lh: 1.08 }));
+    const by = y0 + (n - 1) * sz * 1.08 + 28;
+    ctx.fillStyle = VC.hl; ctx.fillRect(X0, by, TW * 0.32 * appear(t, 0.5, 0.8), 10);
+    if (s.sub) rise(ctx, appear(t, 0.9), () => vtext(ctx, s.sub, X0, by + 66, { size: 34, color: VC.muted, maxLines: 2 }));
+  },
+  points(ctx, s, t, dur, recap) {
+    let y = (s.heading ? vHeading(ctx, s.heading, t) : 150) + 44;
+    const pts = (s.points || []).slice(0, 4), step = Math.max(0.5, (dur * 0.55) / Math.max(1, pts.length));
+    pts.forEach((p, k) => {
+      const yy = y;
+      rise(ctx, appear(t, 0.8 + k * step), () => {
+        if (recap) {
+          ctx.fillStyle = VC.hl; ctx.beginPath(); ctx.arc(X0 + 18, yy - 11, 19, 0, Math.PI * 2); ctx.fill();
+          vtext(ctx, String(k + 1), X0 + 18, yy - 2, { size: 22, font: VF.m, weight: 600, color: VC.ink, align: "center" });
+        } else { ctx.fillStyle = VC.hl; ctx.fillRect(X0, yy - 22, 14, 14); }
+        vtext(ctx, p, X0 + (recap ? 58 : 40), yy, { size: 34, maxLines: 2, maxW: TW - 58 });
+      });
+      y += lineCount(ctx, p, 34, 400, VF.b, TW - 58, 2) * 42 + 22;
+    });
+  },
+  recap(ctx, s, t, dur) { VIS.points(ctx, s, t, dur, true); },
+  flow(ctx, s, t, dur) {
+    const top = vHeading(ctx, s.heading, t) + 46;
+    const st = (s.steps || []).slice(0, 5), n = st.length;
+    const gx = 46, bw = (TW - gx * (n - 1)) / n, bh = 160, step = Math.max(0.5, (dur * 0.55) / n);
+    st.forEach((lab, k) => {
+      const x = X0 + k * (bw + gx), at = 0.8 + k * step;
+      rise(ctx, appear(t, at), () => {
+        ctx.fillStyle = VC.panel; rrect(ctx, x, top, bw, bh, 16); ctx.fill();
+        ctx.strokeStyle = VC.accent; ctx.lineWidth = 2; ctx.stroke();
+        vtext(ctx, String(k + 1).padStart(2, "0"), x + 18, top + 34, { size: 16, font: VF.m, weight: 600, color: VC.hl });
+        const fs = fitSize(ctx, lab, 30, 700, VF.d, bw - 36, 3);
+        vtext(ctx, lab, x + 18, top + 78, { size: fs, font: VF.d, weight: 700, maxW: bw - 36, maxLines: 3, lh: 1.1 });
+      });
+      if (k < n - 1) {
+        const a = appear(t, at + 0.35, 0.4); if (a <= 0) return;
+        const ax = x + bw + 8, ay = top + bh / 2, len = (gx - 16) * a;
+        ctx.save(); ctx.strokeStyle = VC.hl; ctx.fillStyle = VC.hl; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax + len, ay); ctx.stroke();
+        if (a > 0.9) { ctx.beginPath(); ctx.moveTo(ax + len + 2, ay); ctx.lineTo(ax + len - 8, ay - 7); ctx.lineTo(ax + len - 8, ay + 7); ctx.closePath(); ctx.fill(); }
+        ctx.restore();
+      }
+    });
+  },
+  compare(ctx, s, t, dur) {
+    const top = vHeading(ctx, s.heading, t) + 36, cw = (TW - 40) / 2;
+    [s.left, s.right].forEach((side, k) => {
+      if (!side) return;
+      const x = X0 + k * (cw + 40);
+      rise(ctx, appear(t, 0.7 + k * Math.max(0.8, dur * 0.3)), () => {
+        ctx.fillStyle = VC.panel; rrect(ctx, x, top, cw, 290, 16); ctx.fill();
+        vtext(ctx, side.label, x + 28, top + 54, { size: 34, font: VF.d, weight: 800, color: k ? VC.accent : VC.hl, maxW: cw - 56, maxLines: 1 });
+        let y = top + 110;
+        (side.points || []).slice(0, 3).forEach(p => { y += vtext(ctx, "– " + p, x + 28, y, { size: 27, maxW: cw - 56, maxLines: 2 }) + 12; });
+      });
+    });
+  },
+  term(ctx, s, t) {
+    rise(ctx, appear(t, 0.1), () => vtext(ctx, "KEY TERM", X0, 200, { size: 18, font: VF.m, weight: 600, color: VC.muted }));
+    const sz = fitSize(ctx, s.term, 88, 800, VF.d, TW, 2), n = lineCount(ctx, s.term, sz, 800, VF.d, TW, 2);
+    rise(ctx, appear(t, 0.25, 0.6), () => vtext(ctx, s.term, X0, 200 + sz * 1.05, { size: sz, font: VF.d, weight: 800, maxLines: 2, lh: 1.05 }));
+    const by = 200 + sz * 1.05 + (n - 1) * sz * 1.05 + 24;
+    ctx.font = `800 ${sz}px ${VF.d}`;
+    const w = n > 1 ? TW : Math.min(TW, ctx.measureText(s.term).width);
+    ctx.fillStyle = VC.hl; ctx.fillRect(X0, by, w * appear(t, 0.6, 0.7), 12);
+    rise(ctx, appear(t, 1.1), () => vtext(ctx, s.definition, X0, by + 76, { size: 38, color: VC.muted, maxLines: 3 }));
+  },
+  stat(ctx, s, t) {
+    const sz = fitSize(ctx, s.value, 170, 800, VF.d, TW, 1);
+    rise(ctx, appear(t, 0.1, 0.7), () => vtext(ctx, s.value, X0, 330, { size: sz, font: VF.d, weight: 800, color: VC.hl, maxLines: 1 }));
+    rise(ctx, appear(t, 0.8), () => vtext(ctx, s.caption, X0, 420, { size: 40, maxLines: 2 }));
+  }
+};
+function drawFrame(ctx, video, i, t, captions, durs) {
+  const sc = video.scenes[i], dur = durs[i];
+  ctx.fillStyle = VC.bg; ctx.fillRect(0, 0, VW, VH);
+  ctx.strokeStyle = VC.rule; ctx.lineWidth = 2;
+  for (let y = 96; y < VH; y += 48) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(VW, y); ctx.stroke(); }
+  ctx.strokeStyle = "rgba(255,225,77,.16)"; ctx.beginPath(); ctx.moveTo(86, 0); ctx.lineTo(86, VH); ctx.stroke();
+  vtext(ctx, (video.title || "").toUpperCase(), X0, 58, { size: 16, font: VF.m, weight: 600, color: VC.muted, maxLines: 1, maxW: 820 });
+  vtext(ctx, `${i + 1} / ${video.scenes.length}`, VW - X0, 58, { size: 16, font: VF.m, weight: 600, color: VC.muted, align: "right" });
+  ctx.save(); ctx.globalAlpha = ease(t / 0.35);
+  (VIS[sc.type] || VIS.points)(ctx, sc, t, dur);
+  ctx.restore();
+  if (captions && sc.narration) {
+    ctx.save(); ctx.font = `400 26px ${VF.b}`;
+    const lines = wrapLines(ctx, sc.narration, TW).slice(0, 3), bh = lines.length * 34 + 26, by = VH - bh - 30;
+    ctx.fillStyle = "rgba(6,9,20,.84)"; rrect(ctx, X0 - 24, by, TW + 48, bh, 12); ctx.fill();
+    ctx.fillStyle = VC.text; ctx.textAlign = "center";
+    lines.forEach((l, k) => ctx.fillText(l, VW / 2, by + 38 + k * 34));
+    ctx.restore();
+  }
+  const total = durs.reduce((a, b) => a + b, 0), before = durs.slice(0, i).reduce((a, b) => a + b, 0);
+  ctx.fillStyle = "rgba(255,255,255,.08)"; ctx.fillRect(0, VH - 6, VW, 6);
+  ctx.fillStyle = VC.hl; ctx.fillRect(0, VH - 6, VW * Math.min(1, (before + Math.min(t, dur)) / total), 6);
+}
+function normVideo(d, focus) {
+  const str = v => v == null ? "" : String(v).trim();
+  const arr = v => Array.isArray(v) ? v.map(str).filter(Boolean) : [];
+  const side = v => v && typeof v === "object" ? { label: str(v.label), points: arr(v.points) } : null;
+  const scenes = (d && Array.isArray(d.scenes) ? d.scenes : []).map(s => {
+    if (!s || !str(s.narration)) return null;
+    const o = { type: VIS[s.type] ? s.type : "points", narration: str(s.narration), heading: str(s.heading), sub: str(s.sub), points: arr(s.points), steps: arr(s.steps), term: str(s.term), definition: str(s.definition), value: str(s.value), caption: str(s.caption), left: side(s.left), right: side(s.right) };
+    if ((o.type === "flow" && o.steps.length < 2) || (o.type === "compare" && !(o.left && o.right)) || (o.type === "term" && !o.term) || (o.type === "stat" && !o.value) || (o.type === "title" && !o.heading)) {
+      o.heading = o.heading || o.term || o.value || ""; o.points = o.points.length ? o.points : o.steps; o.type = "points";
+    }
+    return o;
+  }).filter(Boolean);
+  if (!scenes.length) throw { code: "bad_shape" };
+  return { id: "v" + Date.now().toString(36), title: str(d.title) || "Explainer", focus, scenes, createdAt: Date.now() };
+}
+
+/* Natural voice-over: Kokoro runs in a worker in this browser, free and with no account. */
+const NARRATORS = [
+  ["bf_emma", "Emma · British"], ["bm_george", "George · British"], ["bf_isabella", "Isabella · British"],
+  ["bm_fable", "Fable · British"], ["bm_lewis", "Lewis · British"], ["browser", "Browser voice (instant, more robotic)"]
+];
+let ttsWorker = null, ttsSeq = 0, audioCtx = null;
+const ttsWait = new Map(), audioCache = new Map();
+const getCtx = () => audioCtx || (audioCtx = new (window.AudioContext || window.webkitAudioContext)());
+function ttsSay(text, voice, onProgress) {
+  if (!ttsWorker) {
+    ttsWorker = new Worker("tts-worker.js", { type: "module" });
+    ttsWorker.onmessage = e => {
+      const m = e.data, w = ttsWait.get(m.id);
+      if (!w) return;
+      if (m.type === "progress") { if (w.onProgress) w.onProgress(m.loaded / m.total); return; }
+      ttsWait.delete(m.id);
+      if (m.type === "done") w.res(m); else w.rej(new Error(m.message));
+    };
+    ttsWorker.onerror = () => { ttsWait.forEach(w => w.rej(new Error("The voice engine failed to start."))); ttsWait.clear(); ttsWorker = null; };
+  }
+  const id = ++ttsSeq;
+  return new Promise((res, rej) => { ttsWait.set(id, { res, rej, onProgress }); ttsWorker.postMessage({ id, text, voice }); });
+}
+async function prepareAudio(video, voice, say) {
+  const key = video.id + ":" + voice;
+  if (audioCache.has(key)) return audioCache.get(key);
+  let stored = S.store && S.store.getAudio ? await S.store.getAudio(key) : null;
+  if (!Array.isArray(stored) || stored.length !== video.scenes.length) {
+    stored = [];
+    for (let i = 0; i < video.scenes.length; i++) {
+      const parts = (video.scenes[i].narration.match(/[^.!?]+[.!?]+["')\]]*|[^.!?]+$/g) || [video.scenes[i].narration]).map(p => p.trim()).filter(Boolean);
+      const chunks = []; let rate = 24000;
+      for (const p of parts) {
+        say(`Recording the voice-over: scene ${i + 1} of ${video.scenes.length}`);
+        const r = await ttsSay(p, voice, f => say(`Downloading the voice (about 90 MB, first time only): ${Math.round(f * 100)}%`));
+        rate = r.rate; chunks.push(r.samples, new Float32Array(Math.round(rate * 0.18)));
+      }
+      const all = new Float32Array(chunks.reduce((a, c) => a + c.length, 0));
+      let o = 0; for (const c of chunks) { all.set(c, o); o += c.length; }
+      stored.push({ rate, samples: all });
+    }
+    if (S.store && S.store.putAudio) S.store.putAudio(key, stored);
+  }
+  const ctx = getCtx();
+  const bufs = stored.map(s => { const b = ctx.createBuffer(1, s.samples.length, s.rate); b.copyToChannel(s.samples, 0); return b; });
+  audioCache.set(key, bufs);
+  return bufs;
+}
+
+let PL = null;
+function stopSound() {
+  if (!PL) return;
+  if (PL.src) { try { PL.src.onended = null; PL.src.stop(); } catch {} PL.src = null; }
+  if (hasTTS) try { speechSynthesis.cancel(); } catch {}
+}
+function stopPlayer() {
+  if (!PL) return;
+  cancelAnimationFrame(PL.raf);
+  PL.playing = false;
+  stopSound();
+  if (PL.rec && PL.rec.state === "recording") { PL.abortRec = true; PL.rec.stop(); }
+  PL = null;
+}
+function pickVoice() {
+  if (!hasTTS) return null;
+  const vs = speechSynthesis.getVoices();
+  return vs.find(v => isGB(v) && /natural|neural|online|google|sonia|libby|ryan|maisie|thomas|george|hazel|susan|daniel|serena|kate|arthur/i.test(v.name)) ||
+    vs.find(isGB) || vs.find(v => /^en/i.test(v.lang)) || null;
+}
+const useNatural = () => VOPT.voice && VOPT.narrator !== "browser";
+function mountPlayer(canvas, video, onState, say) {
+  stopPlayer();
+  PL = { canvas, ctx: canvas.getContext("2d"), video, i: 0, playing: false, ended: false, preparing: false, raf: 0, t0: 0, rec: null, recDest: null, src: null, utt: null, uttDone: true, onState, say,
+    audio: audioCache.get(video.id + ":" + VOPT.narrator) || null };
+  drawStill();
+  if (document.fonts && document.fonts.load) {
+    Promise.all([`800 40px "Bricolage Grotesque"`, `700 40px "Bricolage Grotesque"`, `400 20px "Atkinson Hyperlegible"`, `600 16px "JetBrains Mono"`].map(f => document.fonts.load(f).catch(() => {})))
+      .then(() => { if (PL && PL.canvas === canvas && !PL.playing) drawStill(); });
+  }
+}
+// Scene lengths follow the recorded narration when it is in use, otherwise an estimate from word count.
+const plDurs = () => PL.audio && useNatural() ? PL.audio.map(b => Math.max(3, b.duration + 0.5)) : PL.video.scenes.map(sceneDur);
+const drawAt = t => drawFrame(PL.ctx, PL.video, PL.i, t, PL.rec ? true : VOPT.captions, plDurs());
+function drawStill() { if (!PL) return; drawAt(99); if (PL.onState) PL.onState(); }
+function startScene() {
+  PL.t0 = performance.now(); PL.uttDone = true; PL.utt = null;
+  stopSound();
+  if (!VOPT.voice) return;
+  if (PL.audio && useNatural()) {
+    const ctx = getCtx(), src = ctx.createBufferSource();
+    src.buffer = PL.audio[PL.i];
+    src.connect(ctx.destination);
+    if (PL.recDest) src.connect(PL.recDest);
+    src.start();
+    PL.src = src;
+  } else if (hasTTS && !PL.rec) {
+    const u = new SpeechSynthesisUtterance(PL.video.scenes[PL.i].narration);
+    const v = pickVoice();
+    if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "en-GB";
+    u.rate = 1.02;
+    u.onend = u.onerror = () => { if (PL && PL.utt === u) PL.uttDone = true; };
+    PL.utt = u; PL.uttDone = false;
+    try { speechSynthesis.speak(u); } catch { PL.uttDone = true; }
+  }
+}
+function tick() {
+  if (!PL || !PL.playing) return;
+  const t = (performance.now() - PL.t0) / 1000, d = plDurs()[PL.i];
+  drawAt(t);
+  if (t >= d && (PL.uttDone || t > d + 8)) {
+    if (PL.i < PL.video.scenes.length - 1) { PL.i++; startScene(); PL.onState(); }
+    else { finishPlay(); return; }
+  }
+  PL.raf = requestAnimationFrame(tick);
+}
+// Makes sure the natural voice-over exists before playing; falls back to the browser voice if it can't load.
+async function ensureAudio() {
+  const pl = PL;
+  if (!pl || pl.audio || !useNatural()) return true;
+  pl.preparing = true; pl.onState();
+  try {
+    const bufs = await prepareAudio(pl.video, VOPT.narrator, pl.say);
+    if (PL !== pl) return false;
+    pl.audio = bufs; pl.say("");
+  } catch {
+    if (PL !== pl) return false;
+    pl.say("The natural voice couldn't load on this device, so this is using the browser voice.");
+    VOPT.narrator = "browser";
+    const sel = $("#vVoice"); if (sel) sel.value = "browser";
+  }
+  pl.preparing = false; pl.onState();
+  return true;
+}
+async function playVideo() {
+  if (!PL || PL.preparing) return;
+  const pl = PL;
+  try { getCtx().resume(); } catch {}
+  if (!(await ensureAudio()) || PL !== pl) return;
+  if (PL.ended) { PL.i = 0; PL.ended = false; }
+  PL.playing = true; startScene(); PL.onState(); tick();
+}
+function pauseVideo() {
+  if (!PL) return;
+  PL.playing = false; cancelAnimationFrame(PL.raf);
+  stopSound();
+  drawStill();
+}
+function finishPlay() {
+  PL.playing = false; PL.ended = true;
+  stopSound();
+  drawAt(99);
+  if (PL.rec && PL.rec.state === "recording") PL.rec.stop();
+  PL.onState();
+}
+function goScene(k) {
+  if (!PL || PL.rec || PL.preparing) return;
+  PL.i = Math.max(0, Math.min(PL.video.scenes.length - 1, k)); PL.ended = false;
+  if (PL.playing) { startScene(); PL.onState(); } else drawStill();
+}
+async function recordVideo(say) {
+  if (!PL || PL.rec || PL.preparing) return;
+  const pl = PL;
+  pauseVideo();
+  try { getCtx().resume(); } catch {}
+  if (!(await ensureAudio()) || PL !== pl) return;
+  const withAudio = !!(pl.audio && useNatural());
+  const types = withAudio
+    ? ["video/mp4;codecs=avc1,mp4a.40.2", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"]
+    : ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+  const mime = window.MediaRecorder && pl.canvas.captureStream ? types.find(t => MediaRecorder.isTypeSupported(t)) : null;
+  if (!mime) { say("This browser can't record video. Try Chrome, Edge or Brave."); return; }
+  const stream = pl.canvas.captureStream(30);
+  if (withAudio) { pl.recDest = getCtx().createMediaStreamDestination(); pl.recDest.stream.getAudioTracks().forEach(t => stream.addTrack(t)); }
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 5000000 });
+  const chunks = [];
+  rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  const stopped = new Promise(r => (rec.onstop = r));
+  pl.rec = rec; pl.abortRec = false; pl.i = 0; pl.ended = false;
+  rec.start(1000);
+  pl.playing = true; startScene(); pl.onState(); tick();
+  say("Recording… keep this tab open. It takes as long as the video.");
+  await stopped;
+  stream.getTracks().forEach(tr => tr.stop());
+  pl.rec = null; pl.recDest = null;
+  if (pl.abortRec) return;
+  if (PL === pl) pl.onState();
+  const ext = mime.startsWith("video/mp4") ? "mp4" : "webm";
+  const name = (pl.video.title || "explainer").replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-").slice(0, 60) || "explainer";
+  const url = URL.createObjectURL(new Blob(chunks, { type: mime.split(";")[0] }));
+  const a = h("a", { href: url, download: `${name}.${ext}` });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  say(withAudio ? "Saved to your downloads, with the voice-over." : "Saved to your downloads (captions only: the browser voice can't be recorded).");
+}
+
+function vVideo(lec) {
+  const m = mat(lec.id);
+  const vids = Array.isArray(m.videos) ? m.videos : [];
+  const st = S.videoUI.get(lec.id) || { sel: vids.length ? vids[0].id : null, focus: "", long: pref("vlong") === "1" };
+  S.videoUI.set(lec.id, st);
+  const make = () => runJob("video", lec.id, async (signal, update) => {
+    const d = await S.ai.json(P.video(lec, st.focus.trim(), st.long), { signal, onText: ({ text }) => update(text), cache: false });
+    const v = normVideo(d, st.focus.trim());
+    st.sel = v.id;
+    setMat(lec.id, { videos: [v, ...(mat(lec.id).videos || [])].slice(0, 8) });
+  });
+  const form = h("div", { style: "display:grid;gap:12px;max-width:760px" },
+    h("div", { class: "label" }, vids.length ? "Make another video" : "Make a video"),
+    h("div", { class: "row", style: "flex-wrap:nowrap" },
+      h("div", { style: "flex:1;min-width:0" }, h("label", { class: "sr", for: "vFocus" }, "Topic"),
+        h("input", { class: "input", id: "vFocus", type: "text", value: st.focus, placeholder: "Optional: one topic to explain, e.g. the Krebs cycle",
+          oninput: e => (st.focus = e.target.value), onkeydown: e => { if (e.key === "Enter" && S.ai && !S.job) make(); } })),
+      h("button", { class: "btn primary", type: "button", "data-ai": "", onclick: make }, "Make video")),
+    h("div", { class: "row" },
+      h("div", { class: "seg", role: "group", "aria-label": "Length" },
+        h("button", { type: "button", "aria-pressed": st.long ? "false" : "true", onclick: () => { st.long = false; pref("vlong", "0"); renderPanel(); } }, "About 1 min"),
+        h("button", { type: "button", "aria-pressed": st.long ? "true" : "false", onclick: () => { st.long = true; pref("vlong", "1"); renderPanel(); } }, "About 2 min")),
+      h("span", { class: "note" }, "Animated scenes with a British voice-over and captions.")));
+
+  let busy = null;
+  if (isJob("video", lec.id)) {
+    const c = h("p", { class: "note" }, "Thinking…");
+    S.job.listeners.add(t => { const n = (t.match(/"narration"/g) || []).length; c.textContent = n ? `${n} scene${n > 1 ? "s" : ""} scripted so far` : "Thinking…"; });
+    busy = h("div", {}, jobBar("Scripting your video"), c);
+  }
+  const err = errorFor("video", lec.id);
+  if (!vids.length) return h("div", {}, err, busy || h("div", { class: "empty" },
+    h("h3", {}, "Explainer videos"),
+    h("p", {}, "Short animated videos that walk through the lecture scene by scene, read aloud, with captions. Watch here or save them as video files.")), busy ? null : form);
+
+  const video = vids.find(v => v.id === st.sel) || vids[0];
+  st.sel = video.id;
+  const canvas = h("canvas", { width: VW, height: VH, "aria-label": `Video: ${video.title}` });
+  const screen = h("div", { class: "screen" }, canvas);
+  const playBtn = h("button", { class: "btn primary", type: "button" }, "Play");
+  const msg = h("span", { class: "note", "aria-live": "polite" });
+  const say = t => (msg.textContent = t);
+  const dots = h("div", { class: "dots", role: "group", "aria-label": "Scenes" },
+    video.scenes.map((s, k) => h("button", { type: "button", title: s.heading || s.term || s.value || `Scene ${k + 1}`, onclick: () => goScene(k) }, String(k + 1))));
+  const saveBtn = h("button", { class: "btn small", type: "button", onclick: () => recordVideo(say) }, "Save as video");
+  const fsBtn = h("button", { class: "btn small ghost", type: "button", onclick: () => { try { const p = screen.requestFullscreen && screen.requestFullscreen(); if (p && p.catch) p.catch(() => say("Full screen isn't available here.")); } catch { say("Full screen isn't available here."); } } }, "Full screen");
+  const ccBtn = h("button", { class: "btn small ghost", type: "button", "aria-pressed": String(VOPT.captions), onclick: () => { VOPT.captions = !VOPT.captions; pref("cc", VOPT.captions ? "on" : "off"); ccBtn.setAttribute("aria-pressed", String(VOPT.captions)); ccBtn.textContent = VOPT.captions ? "Captions on" : "Captions off"; if (PL && !PL.playing) drawStill(); } }, VOPT.captions ? "Captions on" : "Captions off");
+  const voiceBtn = h("button", { class: "btn small ghost", type: "button", "aria-pressed": String(VOPT.voice), onclick: () => { VOPT.voice = !VOPT.voice; pref("voice", VOPT.voice ? "on" : "off"); voiceBtn.textContent = VOPT.voice ? "Voice on" : "Voice off"; voiceBtn.setAttribute("aria-pressed", String(VOPT.voice)); if (PL && PL.playing) pauseVideo(); else if (PL) drawStill(); } }, VOPT.voice ? "Voice on" : "Voice off");
+  const voiceSel = h("select", { class: "input vsel", id: "vVoice", "aria-label": "Narrator", onchange: e => {
+    VOPT.narrator = e.target.value; pref("narrator", VOPT.narrator);
+    if (PL && !PL.rec && !PL.preparing) { pauseVideo(); PL.audio = audioCache.get(video.id + ":" + VOPT.narrator) || null; drawStill(); }
+  } }, NARRATORS.map(([id, label]) => h("option", { value: id, selected: id === VOPT.narrator }, label)));
+
+  const onState = () => {
+    if (!PL) return;
+    const recording = !!PL.rec;
+    playBtn.textContent = PL.preparing ? "Preparing…" : PL.playing ? "Pause" : PL.ended ? "Replay" : "Play";
+    playBtn.disabled = recording || PL.preparing;
+    saveBtn.disabled = recording || PL.preparing; voiceSel.disabled = recording || PL.preparing; saveBtn.textContent = recording ? "Recording…" : "Save as video";
+    [...dots.children].forEach((b, k) => { b.setAttribute("aria-current", k === PL.i ? "true" : "false"); b.disabled = recording; });
+  };
+  playBtn.onclick = () => (PL && PL.playing ? pauseVideo() : playVideo());
+  canvas.addEventListener("click", () => { if (PL && !PL.rec) PL.playing ? pauseVideo() : playVideo(); });
+  requestAnimationFrame(() => { if (canvas.isConnected) mountPlayer(canvas, video, onState, say); });
+
+  const del = h("button", { class: "btn small ghost danger", type: "button", onclick: () => {
+    if (del.dataset.armed !== "1") { del.dataset.armed = "1"; del.textContent = "Confirm delete"; return; }
+    st.sel = null;
+    for (const k of [...audioCache.keys()]) if (k.startsWith(video.id + ":")) audioCache.delete(k);
+    if (S.store && S.store.delAudio) S.store.delAudio(video.id + ":");
+    setMat(lec.id, { videos: (mat(lec.id).videos || []).filter(v => v.id !== video.id) });
+    renderPanel();
+  } }, "Delete video");
+
+  return h("div", { style: "display:grid;gap:14px" }, err, busy,
+    vids.length > 1 ? h("div", { class: "chips", role: "group", "aria-label": "Your videos" }, vids.map(v => h("button", {
+      class: "chip", type: "button", "aria-pressed": v.id === video.id ? "true" : "false",
+      onclick: () => { st.sel = v.id; renderPanel(); }
+    }, v.title))) : null,
+    screen,
+    h("div", { class: "toolbar", style: "margin:0;max-width:960px" },
+      h("div", { class: "row" }, playBtn, dots),
+      h("div", { class: "row" }, voiceBtn, ccBtn, fsBtn, saveBtn)),
+    h("div", { class: "row", style: "max-width:960px;justify-content:space-between" },
+      h("div", { class: "row" }, voiceSel, msg),
+      lec.example ? null : del),
+    h("details", { class: "script" }, h("summary", {}, "Read the script"),
+      h("ol", {}, video.scenes.map(s => h("li", {}, s.narration)))),
+    h("p", { class: "note", style: "margin:0;max-width:960px" }, "The natural voices are made on your device: the first video downloads the voice (about 90 MB, once), then each new video takes a little while to record. Saved videos include the voice-over."),
+    h("div", { class: "divider", style: "margin:4px 0" }),
+    busy ? null : form);
+}
+
+/* ---------- Source ---------- */
+function vSource(lec) {
+  return h("div", { style: "display:grid;gap:12px" },
+    h("div", { class: "label" }, "Lecture text the study tools work from"),
+    h("div", { class: "source", tabindex: "0" }, lec.text),
+    lec.text.length > MAX_PROMPT ? h("p", { class: "note" }, `This lecture is long. The study tools use the first ${fmt(MAX_PROMPT)} characters.`) : null);
+}
+
+/* ---------- Add lecture ---------- */
+const LIBS = {
+  pdf: ["https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js", "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"],
+  docx: ["https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"],
+  zip: ["https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"]
+};
+const loaded = {};
+function loadLib(name) {
+  return loaded[name] || (loaded[name] = LIBS[name].reduce((p, src) => p.then(() => new Promise((res, rej) => {
+    const s = document.createElement("script"); s.src = src; s.onload = res;
+    s.onerror = () => { loaded[name] = null; rej(new Error("A file reader couldn't load. Check your connection.")); };
+    document.head.appendChild(s);
+  })), Promise.resolve()));
+}
+async function readPdf(file) {
+  await loadLib("pdf");
+  const lib = window.pdfjsLib;
+  lib.GlobalWorkerOptions.workerSrc = LIBS.pdf[1];
+  const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false, disableFontFace: true }).promise;
+  const pages = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const tc = await (await doc.getPage(p)).getTextContent();
+    let s = "";
+    for (const it of tc.items) s += (it.str || "") + (it.hasEOL ? "\n" : " ");
+    pages.push(s.replace(/[ \t]+\n/g, "\n").trim());
+  }
+  return pages.map((t, i) => t ? `[Page ${i + 1}]\n${t}` : "").filter(Boolean).join("\n\n");
+}
+async function readDocx(file) {
+  await loadLib("docx");
+  const r = await window.mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+  return r.value;
+}
+async function readPptx(file) {
+  await loadLib("zip");
+  const zip = await window.JSZip.loadAsync(await file.arrayBuffer());
+  const num = n => +(n.match(/(\d+)\.xml$/) || [0, 0])[1];
+  const grab = async path => {
+    const xml = new DOMParser().parseFromString(await zip.file(path).async("string"), "application/xml");
+    return [...xml.getElementsByTagName("a:p")].map(p => [...p.getElementsByTagName("a:t")].map(t => t.textContent).join("")).filter(Boolean).join("\n");
+  };
+  const slides = Object.keys(zip.files).filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n)).sort((a, b) => num(a) - num(b));
+  const out = [];
+  for (const s of slides) {
+    const n = num(s);
+    let text = await grab(s);
+    const notesPath = `ppt/notesSlides/notesSlide${n}.xml`;
+    if (zip.file(notesPath)) { const nt = (await grab(notesPath)).replace(/^\d+$/m, "").trim(); if (nt) text += `\nSpeaker notes: ${nt}`; }
+    if (text.trim()) out.push(`[Slide ${n}]\n${text}`);
+  }
+  return out.join("\n\n");
+}
+const ext = f => (f.name.split(".").pop() || "").toLowerCase();
+const nice = name => name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim() || "Untitled lecture";
+const MAX_TEXT = 120000;
+
+async function createLecture(title, text, source) {
+  text = text.replace(/\u0000/g, "").replace(/\n{3,}/g, "\n\n").trim();
+  let note = "";
+  if (text.length > MAX_TEXT) { text = text.slice(0, MAX_TEXT); note = " (trimmed to fit)"; }
+  const id = newId();
+  const lec = { id, type: "lecture", title: title.slice(0, 140), text, source, words: words(text), createdAt: Date.now() };
+  S.lectures = new Map([[id, { ...lec, _pending: true }], ...S.lectures]);
+  const { id: _omit, ...data } = lec;
+  await S.store.put(id, data);
+  return { lec, note };
+}
+
+function renderAdd() {
+  const log = h("div", { class: "log", "aria-live": "polite" });
+  const say = (cls, text) => log.append(h("div", { class: cls }, text));
+  const titleIn = h("input", { class: "input", id: "newTitle", type: "text", placeholder: "Defaults to the file name" });
+  const fileIn = h("input", { type: "file", id: "fileIn", multiple: true, accept: ".pdf,.docx,.pptx,.txt,.md,.markdown,.csv,.vtt,.srt,image/*", class: "sr" });
+  const canImg = !!(S.aiLimits && S.aiLimits.images);
+  let made = null;
+
+  async function handle(files) {
+    files = [...files];
+    if (!files.length) return;
+    if (!S.store) { say("no", "Still connecting to storage. Try again in a moment."); return; }
+    const imgs = files.filter(f => f.type.startsWith("image/"));
+    const docs = files.filter(f => !f.type.startsWith("image/"));
+    const customTitle = titleIn.value.trim();
+    for (const f of docs) {
+      say("", `Reading ${f.name}…`);
+      try {
+        const e = ext(f);
+        let text, source;
+        if (e === "pdf") { text = await readPdf(f); source = "PDF"; }
+        else if (e === "docx") { text = await readDocx(f); source = "Word"; }
+        else if (e === "pptx") { text = await readPptx(f); source = "Slides"; }
+        else if (["txt", "md", "markdown", "csv", "vtt", "srt"].includes(e) || f.type.startsWith("text/")) { text = await f.text(); source = e === "vtt" || e === "srt" ? "Transcript" : "Text"; }
+        else if (/^(audio|video)\//.test(f.type)) { say("no", `${f.name}: audio and video can't be read directly. Paste the transcript below instead.`); continue; }
+        else { say("no", `${f.name}: this file type isn't supported. Use PDF, Word, PowerPoint, text or images.`); continue; }
+        if (words(text) < 15) {
+          say("no", e === "pdf" ? `${f.name}: no selectable text found. It may be scanned. Upload screenshots of the pages as images instead.` : `${f.name}: no readable text found.`);
+          continue;
+        }
+        const { lec, note } = await createLecture(customTitle && files.length === 1 ? customTitle : nice(f.name), text, source);
+        made = lec; say("ok", `Added "${lec.title}" · ${fmt(lec.words)} words${note}`);
+      } catch (err) { say("no", `${f.name}: ${err && err.message ? err.message : "couldn't be read."}`); }
+    }
+    if (imgs.length) {
+      if (!S.ai || !canImg) say("no", "Reading slide photos needs the site passcode. Unlock it on any lecture's page first, or paste the text instead.");
+      else {
+        const max = S.aiLimits.images.maxCount || 5;
+        const parts = [];
+        for (let i = 0; i < imgs.length; i += max) {
+          const batch = imgs.slice(i, i + max);
+          say("", `Transcribing ${batch.length} image${batch.length > 1 ? "s" : ""} with Claude…`);
+          try { const r = await S.ai(P.images(), { images: batch, cache: false }); parts.push(r.text); }
+          catch (e) { if (HIDE.has(e.code)) S.ai = null; say("no", errText(e)); }
+        }
+        const text = parts.join("\n\n");
+        if (words(text) >= 15) {
+          try {
+            const { lec, note } = await createLecture(customTitle || (imgs.length === 1 ? nice(imgs[0].name) : `Slide photos (${imgs.length})`), text, "Images");
+            made = lec; say("ok", `Added "${lec.title}" · ${fmt(lec.words)} words${note}`);
+          } catch (e) { say("no", e.message || "Couldn't save."); }
+        } else if (parts.length) say("no", "Couldn't find readable text in those images.");
+      }
+    }
+    renderLibrary();
+    if (made) openDone.hidden = false;
+  }
+
+  const drop = h("label", { class: "drop", for: "fileIn",
+    ondragover: e => { e.preventDefault(); drop.classList.add("over"); },
+    ondragleave: () => drop.classList.remove("over"),
+    ondrop: e => { e.preventDefault(); drop.classList.remove("over"); handle(e.dataTransfer.files); }
+  },
+    h("b", {}, "Drop lecture files here"),
+    h("span", { class: "note" }, "or click to choose. Several files at once is fine; each becomes its own lecture."),
+    h("div", { class: "types" }, ["PDF", "DOCX", "PPTX", "TXT / MD", "VTT / SRT transcripts", canImg ? "Slide photos" : null].filter(Boolean).map(t => h("span", {}, t))));
+  fileIn.addEventListener("change", () => { handle(fileIn.files); fileIn.value = ""; });
+
+  const paste = h("textarea", { class: "textarea", id: "pasteText", rows: "8", placeholder: "Paste lecture notes, a transcript from Zoom, Panopto or YouTube, or textbook pages" });
+  const openDone = h("button", { class: "btn primary", type: "button", hidden: true, onclick: () => {
+    if (!made) return;
+    S.currentId = made.id; S.view = "lecture"; S.mode = "notes"; S.userPicked = true;
+    renderLibrary(); renderMain();
+    if (S.ai && !mat(made.id).notes) genNotes(S.lectures.get(made.id) || made);
+  } }, "Start studying");
+
+  return h("div", { class: "add" },
+    h("div", {}, h("h2", { style: "font-size:30px;font-weight:800" }, "Add a lecture"),
+      h("p", { class: "note", style: "margin:6px 0 0" }, "Lectures are kept " + (S.store && S.store.kind === "cloud" ? "privately in your Claude account. Only you can see them." : "in this browser."))),
+    h("div", { class: "field" }, h("label", { class: "label", for: "newTitle" }, "Title (optional)"), titleIn),
+    drop, fileIn,
+    h("div", { class: "field" }, h("label", { class: "label", for: "pasteText" }, "Or paste text"), paste,
+      h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: async () => {
+        const t = paste.value;
+        if (words(t) < 15) { say("no", "Paste at least a paragraph of lecture text."); return; }
+        try {
+          const { lec, note } = await createLecture(titleIn.value.trim() || (t.trim().split("\n")[0].slice(0, 60) || "Pasted lecture"), t, "Pasted");
+          made = lec; paste.value = ""; say("ok", `Added "${lec.title}" · ${fmt(lec.words)} words${note}`);
+          renderLibrary(); openDone.hidden = false;
+        } catch (e) { say("no", e.message || "Couldn't save."); }
+      } }, "Add pasted text"),
+      h("span", { class: "note" }, "Recorded lecture? Most video platforms let you download the transcript."))),
+    log,
+    h("div", { class: "row" }, openDone, h("button", { class: "btn ghost", type: "button", onclick: () => { S.view = "lecture"; renderLibrary(); renderMain(); } }, "Back")));
+}
+
+/* ---------- boot ---------- */
+$("#addBtn").addEventListener("click", () => { S.view = "add"; renderLibrary(); renderMain(); });
+if (!MODES.some(([id]) => id === S.mode)) S.mode = "notes";
+renderLibrary();
+renderMain();
+initAI();
+initStore();
+})();
+</script>
