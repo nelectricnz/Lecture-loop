@@ -3,3 +3,10 @@
 
 [functions]
   directory = "netlify/functions"
+
+# Cross-origin isolation lets the in-browser voice model use several CPU threads.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Embedder-Policy = "credentialless"

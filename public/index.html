@@ -1286,11 +1286,14 @@ function ttsSay(text, voice, onProgress) {
   const id = ++ttsSeq;
   return new Promise((res, rej) => { ttsWait.set(id, { res, rej, onProgress }); ttsWorker.postMessage({ id, text, voice }); });
 }
-async function prepareAudio(video, voice, say) {
-  const key = video.id + ":" + voice;
-  if (audioCache.has(key)) return audioCache.get(key);
+// Records the narration scene by scene, handing each scene over as soon as it is ready so playback can start early.
+async function prepareAudio(video, voice, say, onScene) {
+  const key = video.id + ":" + voice, ctx = getCtx();
+  const toBuf = s => { const b = ctx.createBuffer(1, s.samples.length, s.rate); b.copyToChannel(s.samples, 0); return b; };
   let stored = S.store && S.store.getAudio ? await S.store.getAudio(key) : null;
-  if (!Array.isArray(stored) || stored.length !== video.scenes.length) {
+  if (Array.isArray(stored) && stored.length === video.scenes.length) {
+    stored.forEach((s, i) => onScene(i, toBuf(s)));
+  } else {
     stored = [];
     for (let i = 0; i < video.scenes.length; i++) {
       const parts = (video.scenes[i].narration.match(/[^.!?]+[.!?]+["')\]]*|[^.!?]+$/g) || [video.scenes[i].narration]).map(p => p.trim()).filter(Boolean);
@@ -1303,19 +1306,32 @@ async function prepareAudio(video, voice, say) {
       const all = new Float32Array(chunks.reduce((a, c) => a + c.length, 0));
       let o = 0; for (const c of chunks) { all.set(c, o); o += c.length; }
       stored.push({ rate, samples: all });
+      onScene(i, toBuf(stored[i]));
     }
     if (S.store && S.store.putAudio) S.store.putAudio(key, stored);
   }
-  const ctx = getCtx();
-  const bufs = stored.map(s => { const b = ctx.createBuffer(1, s.samples.length, s.rate); b.copyToChannel(s.samples, 0); return b; });
-  audioCache.set(key, bufs);
-  return bufs;
 }
+function startAud(pl) {
+  const key = pl.video.id + ":" + VOPT.narrator;
+  const aud = audioCache.get(key) || { voice: VOPT.narrator, bufs: [], done: false, failed: false, waiters: [], job: null };
+  audioCache.set(key, aud);
+  pl.aud = aud;
+  if (aud.job || aud.done) return;
+  const wake = () => { const ws = aud.waiters; aud.waiters = []; ws.forEach(f => f()); };
+  aud.failed = false;
+  aud.job = prepareAudio(pl.video, aud.voice, t => { if (PL && PL.aud === aud && PL.preparing) PL.say(t); }, (i, b) => { aud.bufs[i] = b; wake(); })
+    .then(() => { aud.done = true; }, () => { aud.failed = true; aud.job = null; })
+    .finally(wake);
+}
+const sceneReady = (aud, i) => new Promise(res => {
+  const chk = () => { if (aud.bufs[i] || aud.failed || aud.done) res(!!aud.bufs[i]); else aud.waiters.push(chk); };
+  chk();
+});
 
 let PL = null;
 function stopSound() {
   if (!PL) return;
-  if (PL.src) { try { PL.src.onended = null; PL.src.stop(); } catch {} PL.src = null; }
+  if (PL.src) { try { PL.src.stop(); } catch {} PL.src = null; }
   if (hasTTS) try { speechSynthesis.cancel(); } catch {}
 }
 function stopPlayer() {
@@ -1333,32 +1349,34 @@ function pickVoice() {
     vs.find(isGB) || vs.find(v => /^en/i.test(v.lang)) || null;
 }
 const useNatural = () => VOPT.voice && VOPT.narrator !== "browser";
+const sceneBuf = i => (PL.aud && PL.aud.voice === VOPT.narrator && useNatural() && PL.aud.bufs[i]) || null;
 function mountPlayer(canvas, video, onState, say) {
   stopPlayer();
   PL = { canvas, ctx: canvas.getContext("2d"), video, i: 0, playing: false, ended: false, preparing: false, raf: 0, t0: 0, rec: null, recDest: null, src: null, utt: null, uttDone: true, onState, say,
-    audio: audioCache.get(video.id + ":" + VOPT.narrator) || null };
+    aud: audioCache.get(video.id + ":" + VOPT.narrator) || null };
   drawStill();
   if (document.fonts && document.fonts.load) {
     Promise.all([`800 40px "Bricolage Grotesque"`, `700 40px "Bricolage Grotesque"`, `400 20px "Atkinson Hyperlegible"`, `600 16px "JetBrains Mono"`].map(f => document.fonts.load(f).catch(() => {})))
       .then(() => { if (PL && PL.canvas === canvas && !PL.playing) drawStill(); });
   }
 }
-// Scene lengths follow the recorded narration when it is in use, otherwise an estimate from word count.
-const plDurs = () => PL.audio && useNatural() ? PL.audio.map(b => Math.max(3, b.duration + 0.5)) : PL.video.scenes.map(sceneDur);
+// Scene lengths follow the recorded narration where it exists, otherwise an estimate from word count.
+const plDurs = () => PL.video.scenes.map((s, i) => { const b = sceneBuf(i); return b ? Math.max(3, b.duration + 0.5) : sceneDur(s); });
 const drawAt = t => drawFrame(PL.ctx, PL.video, PL.i, t, PL.rec ? true : VOPT.captions, plDurs());
 function drawStill() { if (!PL) return; drawAt(99); if (PL.onState) PL.onState(); }
 function startScene() {
   PL.t0 = performance.now(); PL.uttDone = true; PL.utt = null;
   stopSound();
   if (!VOPT.voice) return;
-  if (PL.audio && useNatural()) {
+  const buf = sceneBuf(PL.i);
+  if (buf) {
     const ctx = getCtx(), src = ctx.createBufferSource();
-    src.buffer = PL.audio[PL.i];
+    src.buffer = buf;
     src.connect(ctx.destination);
     if (PL.recDest) src.connect(PL.recDest);
     src.start();
     PL.src = src;
-  } else if (hasTTS && !PL.rec) {
+  } else if (hasTTS && !PL.rec && !useNatural()) {
     const u = new SpeechSynthesisUtterance(PL.video.scenes[PL.i].narration);
     const v = pickVoice();
     if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "en-GB";
@@ -1373,34 +1391,42 @@ function tick() {
   const t = (performance.now() - PL.t0) / 1000, d = plDurs()[PL.i];
   drawAt(t);
   if (t >= d && (PL.uttDone || t > d + 8)) {
-    if (PL.i < PL.video.scenes.length - 1) { PL.i++; startScene(); PL.onState(); }
-    else { finishPlay(); return; }
+    if (PL.i >= PL.video.scenes.length - 1) { finishPlay(); return; }
+    PL.i++;
+    if (useNatural() && !sceneBuf(PL.i) && !PL.rec) {
+      // The next scene's narration is still being recorded: hold here until it is ready.
+      PL.playing = false; stopSound(); drawAt(0); playVideo();
+      return;
+    }
+    startScene(); PL.onState();
   }
   PL.raf = requestAnimationFrame(tick);
 }
-// Makes sure the natural voice-over exists before playing; falls back to the browser voice if it can't load.
-async function ensureAudio() {
+// Waits for the natural voice-over of the current scene (or all scenes); falls back to the browser voice if it can't load.
+async function ensureAudio(all) {
   const pl = PL;
-  if (!pl || pl.audio || !useNatural()) return true;
+  if (!pl || !useNatural()) return true;
+  if (!pl.aud || pl.aud.voice !== VOPT.narrator || pl.aud.failed) startAud(pl);
+  const aud = pl.aud;
+  if (all ? aud.done : aud.bufs[pl.i]) return true;
   pl.preparing = true; pl.onState();
-  try {
-    const bufs = await prepareAudio(pl.video, VOPT.narrator, pl.say);
-    if (PL !== pl) return false;
-    pl.audio = bufs; pl.say("");
-  } catch {
-    if (PL !== pl) return false;
+  const ok = all ? (await aud.job, aud.done) : await sceneReady(aud, pl.i);
+  if (PL !== pl) return false;
+  pl.preparing = false;
+  if (ok) pl.say("");
+  else {
     pl.say("The natural voice couldn't load on this device, so this is using the browser voice.");
     VOPT.narrator = "browser";
     const sel = $("#vVoice"); if (sel) sel.value = "browser";
   }
-  pl.preparing = false; pl.onState();
+  pl.onState();
   return true;
 }
 async function playVideo() {
   if (!PL || PL.preparing) return;
   const pl = PL;
   try { getCtx().resume(); } catch {}
-  if (!(await ensureAudio()) || PL !== pl) return;
+  if (!(await ensureAudio(false)) || PL !== pl) return;
   if (PL.ended) { PL.i = 0; PL.ended = false; }
   PL.playing = true; startScene(); PL.onState(); tick();
 }
@@ -1420,15 +1446,15 @@ function finishPlay() {
 function goScene(k) {
   if (!PL || PL.rec || PL.preparing) return;
   PL.i = Math.max(0, Math.min(PL.video.scenes.length - 1, k)); PL.ended = false;
-  if (PL.playing) { startScene(); PL.onState(); } else drawStill();
+  if (PL.playing) { pauseVideo(); playVideo(); } else drawStill();
 }
 async function recordVideo(say) {
   if (!PL || PL.rec || PL.preparing) return;
   const pl = PL;
   pauseVideo();
   try { getCtx().resume(); } catch {}
-  if (!(await ensureAudio()) || PL !== pl) return;
-  const withAudio = !!(pl.audio && useNatural());
+  if (!(await ensureAudio(true)) || PL !== pl) return;
+  const withAudio = useNatural() && !!sceneBuf(0);
   const types = withAudio
     ? ["video/mp4;codecs=avc1,mp4a.40.2", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"]
     : ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
@@ -1508,7 +1534,7 @@ function vVideo(lec) {
   const voiceBtn = h("button", { class: "btn small ghost", type: "button", "aria-pressed": String(VOPT.voice), onclick: () => { VOPT.voice = !VOPT.voice; pref("voice", VOPT.voice ? "on" : "off"); voiceBtn.textContent = VOPT.voice ? "Voice on" : "Voice off"; voiceBtn.setAttribute("aria-pressed", String(VOPT.voice)); if (PL && PL.playing) pauseVideo(); else if (PL) drawStill(); } }, VOPT.voice ? "Voice on" : "Voice off");
   const voiceSel = h("select", { class: "input vsel", id: "vVoice", "aria-label": "Narrator", onchange: e => {
     VOPT.narrator = e.target.value; pref("narrator", VOPT.narrator);
-    if (PL && !PL.rec && !PL.preparing) { pauseVideo(); PL.audio = audioCache.get(video.id + ":" + VOPT.narrator) || null; drawStill(); }
+    if (PL && !PL.rec && !PL.preparing) { pauseVideo(); PL.aud = audioCache.get(video.id + ":" + VOPT.narrator) || null; drawStill(); }
   } }, NARRATORS.map(([id, label]) => h("option", { value: id, selected: id === VOPT.narrator }, label)));
 
   const onState = () => {
