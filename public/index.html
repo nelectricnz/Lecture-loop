@@ -1320,7 +1320,7 @@ function startAud(pl) {
   const wake = () => { const ws = aud.waiters; aud.waiters = []; ws.forEach(f => f()); };
   aud.failed = false;
   aud.job = prepareAudio(pl.video, aud.voice, t => { if (PL && PL.aud === aud && PL.preparing) PL.say(t); }, (i, b) => { aud.bufs[i] = b; wake(); })
-    .then(() => { aud.done = true; }, () => { aud.failed = true; aud.job = null; })
+    .then(() => { aud.done = true; pref("kokoro", "1"); }, () => { aud.failed = true; aud.job = null; })
     .finally(wake);
 }
 const sceneReady = (aud, i) => new Promise(res => {
@@ -1359,6 +1359,8 @@ function mountPlayer(canvas, video, onState, say) {
     Promise.all([`800 40px "Bricolage Grotesque"`, `700 40px "Bricolage Grotesque"`, `400 20px "Atkinson Hyperlegible"`, `600 16px "JetBrains Mono"`].map(f => document.fonts.load(f).catch(() => {})))
       .then(() => { if (PL && PL.canvas === canvas && !PL.playing) drawStill(); });
   }
+  // Once the voice model is on this device, record narration ahead of time so Play starts straight away.
+  if (useNatural() && pref("kokoro") === "1" && !PL.aud) startAud(PL);
 }
 // Scene lengths follow the recorded narration where it exists, otherwise an estimate from word count.
 const plDurs = () => PL.video.scenes.map((s, i) => { const b = sceneBuf(i); return b ? Math.max(3, b.duration + 0.5) : sceneDur(s); });
